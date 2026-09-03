@@ -130,6 +130,16 @@
   const todayEmptyStateEl = $("#today-empty-state");
   const todayDateLabelEl = $("#today-date-label");
   const todayNewTaskInput = $("#today-new-task-input");
+
+  /* ---- Day detail modal (opened by clicking a calendar day) ---- */
+  const dayModalBackdropEl = $("#day-modal-backdrop");
+  const dayModalEl = $("#day-modal");
+  const dayModalTitleEl = $("#day-modal-title");
+  const dayModalCloseBtn = $("#day-modal-close-btn");
+  const dayModalNewTaskInput = $("#day-modal-new-task-input");
+  const dayModalTaskListEl = $("#day-modal-task-list");
+  const dayModalEmptyStateEl = $("#day-modal-empty-state");
+  let dayModalDate = null; // "YYYY-MM-DD" of the day currently shown, or null when closed
   let currentView = "calendar"; // "list" | "calendar" | "today" — calendar is the default tab
   let calCursor = new Date();
   calCursor.setDate(1); // first of the currently-displayed month
@@ -145,6 +155,7 @@
     renderTaskList();
     if (currentView === "calendar") renderCalendar();
     else if (currentView === "today") renderTodayView();
+    if (dayModalDate) renderDayModal();
   }
 
   function renderProgress() {
@@ -751,7 +762,7 @@
       }
       cell.appendChild(tasksWrap);
 
-      cell.addEventListener("click", () => openCalendarQuickAdd(cell, iso));
+      cell.addEventListener("click", () => openDayModal(iso));
       calGridEl.appendChild(cell);
     }
   }
@@ -800,6 +811,61 @@
     cell.appendChild(input);
     requestAnimationFrame(() => input.focus());
   }
+
+  /* ---- Day detail modal — clicking a day (outside the "+" quick-add
+     button) opens a blurred-backdrop overlay showing that day's full
+     task list, same rich rows as List/Today (checkbox, stars,
+     subtasks, timer, delete), plus its own add-a-task box. ---- */
+  function openDayModal(iso) {
+    dayModalDate = iso;
+    renderDayModal();
+    dayModalBackdropEl.classList.remove("hidden");
+    requestAnimationFrame(() => dayModalNewTaskInput.focus());
+  }
+  function closeDayModal() {
+    dayModalDate = null;
+    dayModalBackdropEl.classList.add("hidden");
+    dayModalNewTaskInput.value = "";
+    autosizeTextarea(dayModalNewTaskInput);
+  }
+  function renderDayModal() {
+    if (!dayModalDate) return;
+    const d = fromISODate(dayModalDate);
+    const today = new Date();
+    dayModalTitleEl.textContent = isSameDate(d, today)
+      ? `Today · ${MONTH_LABELS[d.getMonth()]} ${d.getDate()}`
+      : `${MONTH_LABELS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+
+    const dayTasks = tasks.filter((t) => t.due === dayModalDate);
+    dayModalTaskListEl.innerHTML = "";
+    dayTasks.forEach((t) => dayModalTaskListEl.appendChild(buildTaskRow(t)));
+    dayModalEmptyStateEl.classList.toggle("hidden", dayTasks.length > 0);
+  }
+
+  dayModalCloseBtn.addEventListener("click", closeDayModal);
+  dayModalBackdropEl.addEventListener("click", (e) => {
+    if (e.target === dayModalBackdropEl) closeDayModal(); // click on the blurred backdrop itself, not the card
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && dayModalDate) closeDayModal();
+  });
+
+  dayModalNewTaskInput.addEventListener("input", () => autosizeTextarea(dayModalNewTaskInput));
+  dayModalNewTaskInput.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      const v = dayModalNewTaskInput.value.trim();
+      if (!v || !dayModalDate) return;
+      tasks.push({ id: uid(), text: v, done: false, stars: 0, due: dayModalDate, subtasks: [] });
+      dayModalNewTaskInput.value = "";
+      autosizeTextarea(dayModalNewTaskInput);
+      persist();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeDayModal();
+    }
+  });
 
   /* ================= Today view =================
      A short worklist: whatever's overdue (past-due, unfinished) up

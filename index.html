@@ -13,7 +13,7 @@
      by their exact URL, so "app.js" and "app.js?v=2" count as completely
      different files to them — bumping this forces everyone's browser to
      fetch your new version instead of reusing an old cached one. -->
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
 
@@ -89,7 +89,21 @@
   </div>
 </div>
 
+<div id="day-modal-backdrop" class="day-modal-backdrop hidden">
+  <div id="day-modal" class="day-modal">
+    <div class="day-modal-header">
+      <h2 id="day-modal-title"></h2>
+      <button id="day-modal-close-btn" type="button" class="day-modal-close-btn" title="Close">×</button>
+    </div>
+    <div id="day-modal-add-row" class="today-add-task-row">
+      <textarea id="day-modal-new-task-input" rows="1" class="autosize-input" placeholder="Add a task and press Enter…" spellcheck="false"></textarea>
+    </div>
+    <ul id="day-modal-task-list" class="today-task-list"></ul>
+    <div id="day-modal-empty-state" class="empty-state hidden">No tasks for this day.</div>
+  </div>
+</div>
+
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

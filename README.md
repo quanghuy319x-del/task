@@ -94,9 +94,13 @@ your other Drive files.
   counter (green when everything's checked off — a quick read on how
   productive that day was) plus a row of small checkbox icons — one per
   task due that day, except a task with 2+ subtasks gets broken into
-  one box per subtask instead so you can tick each one individually — hover/tap one to see its text, click to toggle
-  it done right from the calendar. The ＋ on any day (or tapping empty
-  space in it) opens a quick-add box that creates a task due that day.
+  one box per subtask instead so you can tick each one individually.
+  Click anywhere else on a day to open that day's full task list in a
+  blurred-backdrop popup — same rich rows as List/Today (checkbox,
+  stars, subtasks, timer, delete) plus its own "add a task" box; press
+  Esc or tap outside the card to close it. — hover/tap one to see its text, click to toggle
+  it done right from the calendar. The ＋ on any day still opens a fast
+  inline quick-add box right there in the grid (no popup) that creates a task due that day.
   "☀ Today" shows a short worklist — anything overdue up top, then
   whatever's due today, with full task rows (checkbox, stars,
   subtasks, timer, delete all still work there). Past-due, unfinished
