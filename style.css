@@ -127,6 +127,14 @@ body{ min-height:100vh; }
 }
 .task-star.filled{ color: var(--star); }
 
+/* On mouse devices, keep the star, add-subtask, and delete controls
+   tucked away until the row is hovered — same idea as the drag handle
+   above. Touch devices have no hover, so they stay visible there. */
+@media (hover: hover) and (pointer: fine) {
+  .task-stars, .task-actions{ opacity:0; transition: opacity 0.15s; }
+  .task-row:hover .task-stars, .task-row:hover .task-actions{ opacity:1; }
+}
+
 .task-due-wrap{
   display:flex; align-items:center; gap:3px; flex:none; padding-top:1px;
   cursor:pointer; color: var(--text-faint); position:relative;
@@ -147,6 +155,7 @@ body{ min-height:100vh; }
   font-size:13px; padding: 3px 5px; border-radius:6px; line-height:1;
 }
 .task-icon-btn:hover{ background: var(--accent-dim); color: var(--accent); }
+.task-icon-btn.task-add-sub{ font-size:16px; font-weight:700; }
 .task-icon-btn.task-delete:hover{ background: #fbe9e7; color: var(--danger); }
 
 .task-progress-mini{

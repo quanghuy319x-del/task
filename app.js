@@ -302,9 +302,9 @@
 
     const addSubBtn = document.createElement("button");
     addSubBtn.type = "button";
-    addSubBtn.className = "task-icon-btn";
+    addSubBtn.className = "task-icon-btn task-add-sub";
     addSubBtn.title = "Add a subtask";
-    addSubBtn.textContent = "▸+";
+    addSubBtn.textContent = "+";
     addSubBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       collapsedSubtaskIds.delete(t.id);
