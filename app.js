@@ -10,39 +10,49 @@
     el.style.height = Math.min(160, el.scrollHeight) + "px";
   }
 
+  /* ================= Date helpers (for due dates / calendar) =================
+     Dates are stored as plain "YYYY-MM-DD" strings (local calendar day,
+     no time/timezone component) so a task's due date means the same
+     day everywhere it's viewed. */
+  function toISODate(d) {
+    const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  function fromISODate(s) {
+    const parts = String(s || "").split("-").map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) return null;
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+  function isSameDate(a, b) {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  }
+  function startOfToday() {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
   /* ================= Data model =================
      A single flat list of tasks — this app IS the tasks feature, promoted
      out of Branchline's per-node "Tasks…" modal into the whole page.
-     Same shape, same rules:
-       task = { id, text, done, stars (0-3), subtasks: [{id, text, done}] }
-     Stored as one JSON blob { tasks, updatedAt } — locally in
-     localStorage always, and (once signed in) mirrored to a single
-     "tasks.json" file in the person's own Google Drive, the same way
-     Branchline mirrors each mind map. */
-  const STORE_KEY = "todo_tasks_v1";
+     Same shape, same rules, plus an optional due date for the calendar
+     view:
+       task = { id, text, done, stars (0-3), due: "YYYY-MM-DD"|null,
+                 subtasks: [{id, text, done}] }
+     Stored as one JSON blob { tasks, updatedAt }, in a single
+     "tasks.json" file in the person's own Google Drive — the same way
+     Branchline mirrors each mind map. Sign-in is required, so this is
+     the only copy; there's no local-only fallback. */
+  // No local persistence: tasks live only in memory + the person's
+  // Google Drive. There's no offline/guest mode, so nothing needs to
+  // survive a reload except via Drive itself.
   let tasks = [];
   let dataUpdatedAt = 0;
 
-  function loadLocal() {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
-      if (parsed && Array.isArray(parsed.tasks)) {
-        tasks = parsed.tasks;
-        dataUpdatedAt = parsed.updatedAt || 0;
-        return;
-      }
-    } catch (e) {}
-    tasks = [];
-    dataUpdatedAt = 0;
-  }
-  function saveLocal() {
-    dataUpdatedAt = Date.now();
-    try { localStorage.setItem(STORE_KEY, JSON.stringify({ tasks, updatedAt: dataUpdatedAt })); } catch (e) {}
-  }
-  // Every edit funnels through here: save locally, refresh the UI, and
-  // let Drive know there's something new to push up.
+  // Every edit funnels through here: stamp it, refresh the UI, and let
+  // Drive know there's something new to push up.
   function persist() {
-    saveLocal();
+    dataUpdatedAt = Date.now();
     renderAll();
     DriveDB.markDirty();
   }
@@ -101,6 +111,21 @@
   const newTaskInput = $("#new-task-input");
   const sortStarsBtn = $("#sort-stars-btn");
 
+  /* ---- View toggle (List / Calendar) ---- */
+  const viewListBtn = $("#view-list-btn");
+  const viewCalendarBtn = $("#view-calendar-btn");
+  const listViewEl = $("#list-view");
+  const calendarViewEl = $("#calendar-view");
+  const calPrevBtn = $("#cal-prev-btn");
+  const calNextBtn = $("#cal-next-btn");
+  const calTodayBtn = $("#cal-today-btn");
+  const calMonthLabelEl = $("#cal-month-label");
+  const calWeekdaysEl = $("#calendar-weekdays");
+  const calGridEl = $("#calendar-grid");
+  let currentView = "list"; // "list" | "calendar"
+  let calCursor = new Date();
+  calCursor.setDate(1); // first of the currently-displayed month
+
   // Which tasks have their "add a subtask" input expanded, and which have
   // their subtask checklist explicitly collapsed — same as Branchline
   // (not persisted, resets on reload).
@@ -110,6 +135,7 @@
   function renderAll() {
     renderProgress();
     renderTaskList();
+    if (currentView === "calendar") renderCalendar();
   }
 
   function renderProgress() {
@@ -128,7 +154,9 @@
     const li = document.createElement("li");
     const subProg = taskSubtaskProgress(t);
     const subExpanded = (subProg.total > 0 || subtaskAddOpenFor.has(t.id)) && !collapsedSubtaskIds.has(t.id);
-    li.className = "task-row" + (t.done ? " done" : "");
+    const dueDate = t.due ? fromISODate(t.due) : null;
+    const isOverdue = !!(dueDate && !t.done && dueDate < startOfToday());
+    li.className = "task-row" + (t.done ? " done" : "") + (isOverdue ? " overdue" : "");
 
     // Drag-reorder (whole task, ⠿ handle).
     li.addEventListener("dragover", (e) => {
@@ -233,6 +261,24 @@
       stars.appendChild(s);
     }
 
+    const dueWrap = document.createElement("label");
+    dueWrap.className = "task-due-wrap" + (t.due ? " has-due" : "") + (isOverdue ? " overdue" : "");
+    dueWrap.title = t.due ? "Due date (click to change)" : "Set a due date";
+    const dueIcon = document.createElement("span");
+    dueIcon.className = "task-due-icon";
+    dueIcon.textContent = "📅";
+    const dueInput = document.createElement("input");
+    dueInput.type = "date";
+    dueInput.className = "task-due-input";
+    dueInput.value = t.due || "";
+    dueInput.addEventListener("click", (e) => e.stopPropagation());
+    dueInput.addEventListener("change", () => {
+      t.due = dueInput.value || null;
+      persist();
+    });
+    dueWrap.appendChild(dueIcon);
+    dueWrap.appendChild(dueInput);
+
     const actions = document.createElement("div");
     actions.className = "task-actions";
 
@@ -274,6 +320,7 @@
     top.appendChild(cb);
     top.appendChild(text);
     top.appendChild(stars);
+    top.appendChild(dueWrap);
     top.appendChild(actions);
     main.appendChild(top);
 
@@ -544,7 +591,7 @@
       e.preventDefault();
       const v = newTaskInput.value.trim();
       if (!v) return;
-      tasks.push({ id: uid(), text: v, done: false, stars: 0, subtasks: [] });
+      tasks.push({ id: uid(), text: v, done: false, stars: 0, due: null, subtasks: [] });
       newTaskInput.value = "";
       autosizeTextarea(newTaskInput);
       persist();
@@ -556,6 +603,124 @@
     tasks = tasks.slice().sort((a, b) => getTaskStars(b) - getTaskStars(a));
     persist();
   });
+
+  /* ================= Calendar view =================
+     A simple, single month grid (like a stripped-down Google Calendar
+     month view) sitting alongside the list view — same underlying
+     `tasks` array, just a different lens on it. Tasks show up on
+     whichever day their `due` date falls on; tapping a task pill
+     toggles it done, tapping empty space on a day opens a quick-add
+     input pre-set to that day. */
+  const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MONTH_LABELS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const CAL_MAX_PILLS = 3;
+
+  function switchView(view) {
+    currentView = view;
+    listViewEl.classList.toggle("hidden", view !== "list");
+    calendarViewEl.classList.toggle("hidden", view !== "calendar");
+    viewListBtn.classList.toggle("active", view === "list");
+    viewCalendarBtn.classList.toggle("active", view === "calendar");
+    if (view === "calendar") renderCalendar();
+  }
+  viewListBtn.addEventListener("click", () => switchView("list"));
+  viewCalendarBtn.addEventListener("click", () => switchView("calendar"));
+
+  calPrevBtn.addEventListener("click", () => { calCursor.setMonth(calCursor.getMonth() - 1); renderCalendar(); });
+  calNextBtn.addEventListener("click", () => { calCursor.setMonth(calCursor.getMonth() + 1); renderCalendar(); });
+  calTodayBtn.addEventListener("click", () => { calCursor = new Date(); calCursor.setDate(1); renderCalendar(); });
+
+  function renderCalendar() {
+    calMonthLabelEl.textContent = `${MONTH_LABELS[calCursor.getMonth()]} ${calCursor.getFullYear()}`;
+
+    if (!calWeekdaysEl.childElementCount) {
+      WEEKDAY_LABELS.forEach((w) => {
+        const el = document.createElement("div");
+        el.className = "calendar-weekday";
+        el.textContent = w;
+        calWeekdaysEl.appendChild(el);
+      });
+    }
+
+    calGridEl.innerHTML = "";
+    const year = calCursor.getFullYear(), month = calCursor.getMonth();
+    const startWeekday = new Date(year, month, 1).getDay();
+    const gridStart = new Date(year, month, 1 - startWeekday);
+    const today = new Date();
+
+    const tasksByDate = {};
+    tasks.forEach((t) => {
+      if (t.due) (tasksByDate[t.due] = tasksByDate[t.due] || []).push(t);
+    });
+
+    for (let i = 0; i < 42; i++) {
+      const cellDate = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+      const iso = toISODate(cellDate);
+      const cell = document.createElement("div");
+      cell.className = "calendar-cell";
+      if (cellDate.getMonth() !== month) cell.classList.add("other-month");
+      if (isSameDate(cellDate, today)) cell.classList.add("today");
+
+      const dayNum = document.createElement("div");
+      dayNum.className = "calendar-day-num";
+      dayNum.textContent = cellDate.getDate();
+      cell.appendChild(dayNum);
+
+      const tasksWrap = document.createElement("div");
+      tasksWrap.className = "calendar-day-tasks";
+      const dayTasks = tasksByDate[iso] || [];
+      dayTasks.slice(0, CAL_MAX_PILLS).forEach((t) => {
+        const pill = document.createElement("div");
+        pill.className = "calendar-task-pill" + (t.done ? " done" : "");
+        pill.textContent = t.text || "Untitled task";
+        pill.title = t.text || "Untitled task";
+        pill.addEventListener("click", (e) => {
+          e.stopPropagation();
+          t.done = !t.done;
+          getTaskSubtasks(t).forEach((s) => { s.done = t.done; });
+          persist();
+        });
+        tasksWrap.appendChild(pill);
+      });
+      if (dayTasks.length > CAL_MAX_PILLS) {
+        const more = document.createElement("div");
+        more.className = "calendar-more-label";
+        more.textContent = `+${dayTasks.length - CAL_MAX_PILLS} more`;
+        tasksWrap.appendChild(more);
+      }
+      cell.appendChild(tasksWrap);
+
+      cell.addEventListener("click", () => openCalendarQuickAdd(cell, iso));
+      calGridEl.appendChild(cell);
+    }
+  }
+
+  function openCalendarQuickAdd(cell, iso) {
+    if (cell.querySelector(".calendar-quick-add")) return;
+    const input = document.createElement("textarea");
+    input.rows = 1;
+    input.className = "calendar-quick-add autosize-input";
+    input.placeholder = "Add task…";
+    input.spellcheck = false;
+    input.addEventListener("click", (e) => e.stopPropagation());
+    input.addEventListener("input", () => autosizeTextarea(input));
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        const v = input.value.trim();
+        if (!v) return;
+        tasks.push({ id: uid(), text: v, done: false, stars: 0, due: iso, subtasks: [] });
+        persist();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        input.remove();
+      }
+    });
+    input.addEventListener("blur", () => { if (!input.value.trim()) input.remove(); });
+    cell.appendChild(input);
+    requestAnimationFrame(() => input.focus());
+  }
 
   /* ================= Focus timer =================
      One global timer, scoped to whichever task's ⏱ was clicked last —
@@ -777,7 +942,10 @@
 
   const signinBtn = $("#signin-btn");
   const syncStatusEl = $("#sync-status");
-  const signedOutNoteEl = $("#signed-out-note");
+  const authGateEl = $("#auth-gate");
+  const authGateMessageEl = $("#auth-gate-message");
+  const authGateSigninBtn = $("#auth-gate-signin-btn");
+  const appContentEl = $("#app-content");
 
   const DriveDB = {
     tokenClient: null,
@@ -918,7 +1086,6 @@
         if (remote && Array.isArray(remote.tasks) && (remote.updatedAt || 0) > dataUpdatedAt) {
           tasks = remote.tasks;
           dataUpdatedAt = remote.updatedAt;
-          saveLocal();
           renderAll();
         }
         await this.uploadRemote();
@@ -942,7 +1109,6 @@
           if (remote && Array.isArray(remote.tasks) && (remote.updatedAt || 0) > dataUpdatedAt) {
             tasks = remote.tasks;
             dataUpdatedAt = remote.updatedAt;
-            saveLocal();
             renderAll();
             this.lastSyncedAt = Date.now();
             updateSyncUI();
@@ -969,20 +1135,49 @@
     else { syncStatusEl.textContent = ""; }
     signinBtn.textContent = DriveDB.needsReauth ? "Reconnect Google" : (DriveDB.signedIn ? "Sign out" : "Sign in with Google");
     signinBtn.classList.toggle("signed-in", DriveDB.signedIn && !DriveDB.needsReauth);
-    signedOutNoteEl.classList.toggle("hidden", DriveDB.signedIn);
+    updateGate();
   }
 
-  signinBtn.addEventListener("click", () => {
+  /* ================= Auth/online gate =================
+     This app has no local-only mode: the task list, add-task row, and
+     all editing are locked behind the auth-gate overlay unless the
+     person is signed in to Google *and* currently online. This keeps
+     Drive as the single source of truth — no editing happens that
+     might not make it into a sync. */
+  function isUnlocked() {
+    return navigator.onLine && DriveDB.signedIn && !DriveDB.needsReauth;
+  }
+  function updateGate() {
+    const unlocked = isUnlocked();
+    appContentEl.classList.toggle("hidden", !unlocked);
+    authGateEl.classList.toggle("hidden", unlocked);
+    if (unlocked) return;
+    if (!navigator.onLine) {
+      authGateMessageEl.textContent = "You're offline. This app needs an internet connection to sync your tasks.";
+    } else if (DriveDB.needsReauth) {
+      authGateMessageEl.textContent = "Your Google session expired. Reconnect to keep using this app.";
+    } else {
+      authGateMessageEl.textContent = "Sign in with Google to use this app. Tasks are stored in your Google Drive — nothing works offline-only.";
+    }
+    authGateSigninBtn.textContent = DriveDB.needsReauth ? "Reconnect Google" : "Sign in with Google";
+    authGateSigninBtn.classList.toggle("hidden", !navigator.onLine);
+  }
+
+  function handleSigninClick() {
     if (DriveDB.signedIn || DriveDB.needsReauth) DriveDB.signOut();
     else DriveDB.signIn(false);
-  });
+  }
+  signinBtn.addEventListener("click", handleSigninClick);
+  authGateSigninBtn.addEventListener("click", () => DriveDB.signIn(false));
+
+  window.addEventListener("online", updateGate);
+  window.addEventListener("offline", updateGate);
 
   // Keeps the sync status text ("Synced 2m ago") fresh without needing
   // an actual sync to re-render it.
   setInterval(() => { if (DriveDB.signedIn) updateSyncUI(); }, 30000);
 
   /* ================= Init ================= */
-  loadLocal();
   renderAll();
   updateSyncUI();
   // Try a silent (no-popup) sign-in on load if we still have a cached

@@ -3,20 +3,23 @@
 The exact task feature from Branchline (subtasks, priority stars, focus
 timer, progress bar), promoted out of the mind map into its own
 page — plus Google Sign-In to sync your list to your own Google Drive.
-No server, no account system of its own — everything runs in your
-browser, and Google Drive is the only thing that ever sends your data
-anywhere.
+No server, no account system of its own — Google Drive is the only
+place your data ever gets sent, and it's the only place it's stored.
+
+**Sign-in required.** This app has no local-only mode: you must sign
+in with Google and be online to add, edit, or view any tasks. There's
+no guest/offline mode and no local browser storage of your task
+content — the app is locked behind a "Sign in with Google" screen
+until both conditions are met.
 
 ## How to run it
 
 1. Unzip this folder anywhere on your computer.
 2. Double-click `index.html` (or right-click → Open with → your browser).
-3. That's it — works fully offline. Your tasks are saved to this
-   browser's local storage automatically as you type.
+3. Sign in with Google when prompted — the app is unusable until you do.
 
-## Google Sign-In setup (optional — syncs your tasks across devices)
+## Google Sign-In setup (required)
 
-By default, each device/browser only has its own copy of your tasks.
 The Client ID already in `app.js` is Branchline's own — Google
 authorizes by **origin** (scheme + host, not the full path), so if
 you're hosting this on the **same GitHub Pages site** as Branchline
@@ -83,17 +86,27 @@ your other Drive files.
   even while you edit other tasks, chimes when time's up, and counts
   down right in the browser tab's title (e.g. "⏱ 0:42 · Water the
   plants") so you can see it without switching back to the tab.
-- **Autosave** — every edit is saved to this browser's local storage
-  immediately; signed-in edits also sync to Drive a moment later.
+- **Autosave** — every edit syncs to your Google Drive `tasks.json`
+  file automatically, a moment after you make it.
+- **Due dates + Calendar view** — click the 📅 on any task to give it a
+  due date. Switch to "📅 Calendar" at the top for a simple month grid
+  (like Google Calendar): tasks appear as pills on their due date,
+  tapping a pill toggles it done, and tapping empty space on a day
+  opens a quick-add box that creates a task due that day. Past-due,
+  unfinished tasks show in red in the list view. Navigate months with
+  ‹ ›, or jump back with "Today".
 
 ## Notes
 
-- Without signing in, your tasks live only in this browser's local
-  storage for this page — if you clear your browser's site data, or
-  open the app from a different URL/origin, they won't carry over.
-  Sign in with Google if that matters to you.
+- The app requires being signed in **and** online at all times — if
+  your connection drops or your Google session expires, the task list
+  locks again (a message on the sign-in screen tells you which) until
+  you reconnect. Nothing is cached locally for offline editing.
 - If you host this on GitHub Pages and re-upload `app.js` or
   `style.css`, bump the `?v=1` number in `index.html` to `?v=2` (etc.)
   each time, or people who already have the page open/cached may keep
   seeing the old version — browsers cache `.js`/`.css` files by their
   exact URL.
+- Due dates sync as an extra `due` field on each task, so older synced
+  data with no due dates just loads with everything undated — nothing
+  to migrate.

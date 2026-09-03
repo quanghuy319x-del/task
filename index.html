@@ -13,7 +13,7 @@
      by their exact URL, so "app.js" and "app.js?v=2" count as completely
      different files to them — bumping this forces everyone's browser to
      fetch your new version instead of reusing an old cached one. -->
-<link rel="stylesheet" href="style.css?v=1">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 
@@ -29,29 +29,50 @@
     </div>
   </header>
 
-  <div id="signed-out-note" class="signed-out-note hidden">
-    Working locally in this browser only. Sign in with Google to sync your
-    tasks across devices.
+  <div id="auth-gate" class="auth-gate">
+    <div class="auth-gate-icon">🔒</div>
+    <p id="auth-gate-message" class="auth-gate-message">Sign in with Google to use this app.</p>
+    <button id="auth-gate-signin-btn" type="button" class="signin-btn">Sign in with Google</button>
   </div>
 
-  <div id="progress-wrap">
-    <div id="progress-bar"><div id="progress-fill"></div></div>
-    <span id="progress-label">0 / 0</span>
+  <div id="app-content" class="hidden">
+    <div id="view-toggle" class="view-toggle">
+      <button id="view-list-btn" type="button" class="view-tab active">☰ List</button>
+      <button id="view-calendar-btn" type="button" class="view-tab">📅 Calendar</button>
+    </div>
+
+    <div id="list-view">
+      <div id="progress-wrap">
+        <div id="progress-bar"><div id="progress-fill"></div></div>
+        <span id="progress-label">0 / 0</span>
+      </div>
+
+      <div id="focus-timer-widget" class="focus-timer-widget"></div>
+
+      <div id="add-task-row">
+        <textarea id="new-task-input" rows="1" class="autosize-input" placeholder="Add a task and press Enter…" spellcheck="false"></textarea>
+        <button id="sort-stars-btn" type="button" title="Sort by priority (highest first)">★ Sort</button>
+      </div>
+
+      <ul id="task-list"></ul>
+
+      <div id="empty-state" class="empty-state hidden">No tasks yet — add one above.</div>
+    </div>
+
+    <div id="calendar-view" class="calendar-view hidden">
+      <div id="calendar-header">
+        <button id="cal-prev-btn" type="button" class="cal-nav-btn" title="Previous month">‹</button>
+        <span id="cal-month-label"></span>
+        <button id="cal-today-btn" type="button" class="cal-today-btn">Today</button>
+        <button id="cal-next-btn" type="button" class="cal-nav-btn" title="Next month">›</button>
+      </div>
+      <div id="calendar-weekdays"></div>
+      <div id="calendar-grid"></div>
+    </div>
   </div>
-
-  <div id="focus-timer-widget" class="focus-timer-widget"></div>
-
-  <div id="add-task-row">
-    <textarea id="new-task-input" rows="1" class="autosize-input" placeholder="Add a task and press Enter…" spellcheck="false"></textarea>
-    <button id="sort-stars-btn" type="button" title="Sort by priority (highest first)">★ Sort</button>
-  </div>
-
-  <ul id="task-list"></ul>
-
-  <div id="empty-state" class="empty-state hidden">No tasks yet — add one above.</div>
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="app.js?v=1"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
