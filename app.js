@@ -661,10 +661,26 @@
       if (cellDate.getMonth() !== month) cell.classList.add("other-month");
       if (isSameDate(cellDate, today)) cell.classList.add("today");
 
-      const dayNum = document.createElement("div");
+      const dayHead = document.createElement("div");
+      dayHead.className = "calendar-day-head";
+
+      const dayNum = document.createElement("span");
       dayNum.className = "calendar-day-num";
       dayNum.textContent = cellDate.getDate();
-      cell.appendChild(dayNum);
+      dayHead.appendChild(dayNum);
+
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.className = "calendar-add-btn";
+      addBtn.title = "Add task on this day";
+      addBtn.textContent = "+";
+      addBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openCalendarQuickAdd(cell, iso);
+      });
+      dayHead.appendChild(addBtn);
+
+      cell.appendChild(dayHead);
 
       const tasksWrap = document.createElement("div");
       tasksWrap.className = "calendar-day-tasks";
