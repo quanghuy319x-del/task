@@ -88,13 +88,16 @@ your other Drive files.
   plants") so you can see it without switching back to the tab.
 - **Autosave** — every edit syncs to your Google Drive `tasks.json`
   file automatically, a moment after you make it.
-- **Due dates + Calendar view** — click the 📅 on any task to give it a
-  due date. Switch to "📅 Calendar" at the top for a simple month grid
-  (like Google Calendar): tasks appear as pills on their due date,
-  tapping a pill toggles it done, and tapping empty space on a day
-  opens a quick-add box that creates a task due that day. Past-due,
-  unfinished tasks show in red in the list view. Navigate months with
-  ‹ ›, or jump back with "Today".
+- **Due dates + Calendar & Today views** — click the 📅 on any task to
+  give it a due date. "📅 Calendar" (the default tab) shows a simple
+  month grid like Google Calendar: tasks appear as pills on their due
+  date, tapping a pill toggles it done, and the ＋ on any day (or
+  tapping empty space in it) opens a quick-add box that creates a task
+  due that day. "☀ Today" shows a short worklist — anything overdue up
+  top, then whatever's due today, with full task rows (checkbox,
+  stars, subtasks, timer, delete all still work there). Past-due,
+  unfinished tasks show in red in the list view too. Navigate months
+  in Calendar with ‹ ›, or jump back with "Today".
 
 ## Notes
 

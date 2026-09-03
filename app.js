@@ -111,18 +111,25 @@
   const newTaskInput = $("#new-task-input");
   const sortStarsBtn = $("#sort-stars-btn");
 
-  /* ---- View toggle (List / Calendar) ---- */
+  /* ---- View toggle (List / Calendar / Today) ---- */
   const viewListBtn = $("#view-list-btn");
   const viewCalendarBtn = $("#view-calendar-btn");
+  const viewTodayBtn = $("#view-today-btn");
   const listViewEl = $("#list-view");
   const calendarViewEl = $("#calendar-view");
+  const todayViewEl = $("#today-view");
   const calPrevBtn = $("#cal-prev-btn");
   const calNextBtn = $("#cal-next-btn");
   const calTodayBtn = $("#cal-today-btn");
   const calMonthLabelEl = $("#cal-month-label");
   const calWeekdaysEl = $("#calendar-weekdays");
   const calGridEl = $("#calendar-grid");
-  let currentView = "list"; // "list" | "calendar"
+  const todayOverdueSectionEl = $("#today-overdue-section");
+  const todayOverdueListEl = $("#today-overdue-list");
+  const todayListEl = $("#today-list");
+  const todayEmptyStateEl = $("#today-empty-state");
+  const todayDateLabelEl = $("#today-date-label");
+  let currentView = "calendar"; // "list" | "calendar" | "today" — calendar is the default tab
   let calCursor = new Date();
   calCursor.setDate(1); // first of the currently-displayed month
 
@@ -136,6 +143,7 @@
     renderProgress();
     renderTaskList();
     if (currentView === "calendar") renderCalendar();
+    else if (currentView === "today") renderTodayView();
   }
 
   function renderProgress() {
@@ -619,12 +627,16 @@
     currentView = view;
     listViewEl.classList.toggle("hidden", view !== "list");
     calendarViewEl.classList.toggle("hidden", view !== "calendar");
+    todayViewEl.classList.toggle("hidden", view !== "today");
     viewListBtn.classList.toggle("active", view === "list");
     viewCalendarBtn.classList.toggle("active", view === "calendar");
+    viewTodayBtn.classList.toggle("active", view === "today");
     if (view === "calendar") renderCalendar();
+    else if (view === "today") renderTodayView();
   }
   viewListBtn.addEventListener("click", () => switchView("list"));
   viewCalendarBtn.addEventListener("click", () => switchView("calendar"));
+  viewTodayBtn.addEventListener("click", () => switchView("today"));
 
   calPrevBtn.addEventListener("click", () => { calCursor.setMonth(calCursor.getMonth() - 1); renderCalendar(); });
   calNextBtn.addEventListener("click", () => { calCursor.setMonth(calCursor.getMonth() + 1); renderCalendar(); });
@@ -736,6 +748,27 @@
     input.addEventListener("blur", () => { if (!input.value.trim()) input.remove(); });
     cell.appendChild(input);
     requestAnimationFrame(() => input.focus());
+  }
+
+  /* ================= Today view =================
+     A short worklist: whatever's overdue (past-due, unfinished) up
+     top, then whatever's due today — same task rows as the list view
+     (checkbox, stars, due date, subtasks, timer, delete all still
+     work here), just pre-filtered instead of showing everything. */
+  function renderTodayView() {
+    const today = new Date();
+    todayDateLabelEl.textContent = `Today · ${MONTH_LABELS[today.getMonth()]} ${today.getDate()}`;
+
+    const overdue = tasks.filter((t) => t.due && !t.done && fromISODate(t.due) < startOfToday());
+    const dueToday = tasks.filter((t) => t.due && isSameDate(fromISODate(t.due), today));
+
+    todayOverdueListEl.innerHTML = "";
+    overdue.forEach((t) => todayOverdueListEl.appendChild(buildTaskRow(t)));
+    todayOverdueSectionEl.classList.toggle("hidden", overdue.length === 0);
+
+    todayListEl.innerHTML = "";
+    dueToday.forEach((t) => todayListEl.appendChild(buildTaskRow(t)));
+    todayEmptyStateEl.classList.toggle("hidden", dueToday.length > 0);
   }
 
   /* ================= Focus timer =================

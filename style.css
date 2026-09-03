@@ -54,7 +54,7 @@ body{ min-height:100vh; }
 .auth-gate-message{ font-size:14px; max-width: 360px; line-height:1.5; margin:0; }
 .auth-gate .signin-btn{ margin-top:4px; }
 
-.view-toggle{ display:flex; gap:6px; margin: 10px 0 14px; }
+.view-toggle{ display:flex; gap:6px; margin: 10px 0 14px; flex-wrap:wrap; }
 .view-tab{
   border:1px solid var(--card-border); background: var(--card); color: var(--text-dim);
   border-radius: 999px; padding: 6px 14px; font-size:13px; font-weight:600;
@@ -271,6 +271,17 @@ body{ min-height:100vh; }
   #cal-month-label{ min-width:120px; font-size:13.5px; }
   .calendar-add-btn{ opacity:1; } /* no hover on touch — keep it visible */
 }
+
+/* ================= Today view ================= */
+.today-view.hidden{ display:none; }
+.today-section{ margin-bottom: 22px; }
+.today-section.hidden{ display:none; }
+.today-section-title{
+  font-size:13px; font-weight:700; color: var(--text-dim); margin: 0 0 8px 2px;
+  text-transform:uppercase; letter-spacing:0.03em;
+}
+.today-overdue-title{ color: var(--danger); }
+.today-task-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
 
 @media (max-width: 480px){
   #top-bar{ flex-direction:column; align-items:flex-start; }

@@ -13,7 +13,7 @@
      by their exact URL, so "app.js" and "app.js?v=2" count as completely
      different files to them — bumping this forces everyone's browser to
      fetch your new version instead of reusing an old cached one. -->
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 
@@ -37,11 +37,12 @@
 
   <div id="app-content" class="hidden">
     <div id="view-toggle" class="view-toggle">
-      <button id="view-list-btn" type="button" class="view-tab active">☰ List</button>
-      <button id="view-calendar-btn" type="button" class="view-tab">📅 Calendar</button>
+      <button id="view-list-btn" type="button" class="view-tab">☰ List</button>
+      <button id="view-calendar-btn" type="button" class="view-tab active">📅 Calendar</button>
+      <button id="view-today-btn" type="button" class="view-tab">☀ Today</button>
     </div>
 
-    <div id="list-view">
+    <div id="list-view" class="hidden">
       <div id="progress-wrap">
         <div id="progress-bar"><div id="progress-fill"></div></div>
         <span id="progress-label">0 / 0</span>
@@ -59,7 +60,7 @@
       <div id="empty-state" class="empty-state hidden">No tasks yet — add one above.</div>
     </div>
 
-    <div id="calendar-view" class="calendar-view hidden">
+    <div id="calendar-view" class="calendar-view">
       <div id="calendar-header">
         <button id="cal-prev-btn" type="button" class="cal-nav-btn" title="Previous month">‹</button>
         <span id="cal-month-label"></span>
@@ -69,10 +70,22 @@
       <div id="calendar-weekdays"></div>
       <div id="calendar-grid"></div>
     </div>
+
+    <div id="today-view" class="today-view hidden">
+      <div id="today-overdue-section" class="today-section hidden">
+        <h2 class="today-section-title today-overdue-title">Overdue</h2>
+        <ul id="today-overdue-list" class="today-task-list"></ul>
+      </div>
+      <div class="today-section">
+        <h2 class="today-section-title" id="today-date-label">Today</h2>
+        <ul id="today-list" class="today-task-list"></ul>
+        <div id="today-empty-state" class="empty-state hidden">Nothing due today.</div>
+      </div>
+    </div>
   </div>
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
