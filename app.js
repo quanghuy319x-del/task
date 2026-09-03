@@ -621,7 +621,7 @@
      input pre-set to that day. */
   const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MONTH_LABELS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  const CAL_MAX_PILLS = 3;
+  const CAL_MAX_BOXES = 12;
 
   function switchView(view) {
     currentView = view;
@@ -681,6 +681,16 @@
       dayNum.textContent = cellDate.getDate();
       dayHead.appendChild(dayNum);
 
+      const dayTasks = tasksByDate[iso] || [];
+      if (dayTasks.length) {
+        const doneCount = dayTasks.filter((t) => t.done).length;
+        const counter = document.createElement("span");
+        counter.className = "calendar-day-counter" + (doneCount === dayTasks.length ? " all-done" : "");
+        counter.textContent = `${doneCount}/${dayTasks.length}`;
+        counter.title = `${doneCount} of ${dayTasks.length} tasks done`;
+        dayHead.appendChild(counter);
+      }
+
       const addBtn = document.createElement("button");
       addBtn.type = "button";
       addBtn.className = "calendar-add-btn";
@@ -696,24 +706,24 @@
 
       const tasksWrap = document.createElement("div");
       tasksWrap.className = "calendar-day-tasks";
-      const dayTasks = tasksByDate[iso] || [];
-      dayTasks.slice(0, CAL_MAX_PILLS).forEach((t) => {
-        const pill = document.createElement("div");
-        pill.className = "calendar-task-pill" + (t.done ? " done" : "");
-        pill.textContent = t.text || "Untitled task";
-        pill.title = t.text || "Untitled task";
-        pill.addEventListener("click", (e) => {
+      dayTasks.slice(0, CAL_MAX_BOXES).forEach((t) => {
+        const box = document.createElement("span");
+        box.className = "calendar-task-box" + (t.done ? " done" : "");
+        box.textContent = t.done ? "☑" : "☐";
+        box.title = t.text || "Untitled task";
+        box.addEventListener("click", (e) => {
           e.stopPropagation();
           t.done = !t.done;
           getTaskSubtasks(t).forEach((s) => { s.done = t.done; });
           persist();
         });
-        tasksWrap.appendChild(pill);
+        tasksWrap.appendChild(box);
       });
-      if (dayTasks.length > CAL_MAX_PILLS) {
-        const more = document.createElement("div");
+      if (dayTasks.length > CAL_MAX_BOXES) {
+        const more = document.createElement("span");
         more.className = "calendar-more-label";
-        more.textContent = `+${dayTasks.length - CAL_MAX_PILLS} more`;
+        more.textContent = `+${dayTasks.length - CAL_MAX_BOXES}`;
+        more.title = `${dayTasks.length - CAL_MAX_BOXES} more task(s) — open List or Today view to see them all`;
         tasksWrap.appendChild(more);
       }
       cell.appendChild(tasksWrap);

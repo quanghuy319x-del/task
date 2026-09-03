@@ -90,14 +90,17 @@ your other Drive files.
   file automatically, a moment after you make it.
 - **Due dates + Calendar & Today views** — click the 📅 on any task to
   give it a due date. "📅 Calendar" (the default tab) shows a simple
-  month grid like Google Calendar: tasks appear as pills on their due
-  date, tapping a pill toggles it done, and the ＋ on any day (or
-  tapping empty space in it) opens a quick-add box that creates a task
-  due that day. "☀ Today" shows a short worklist — anything overdue up
-  top, then whatever's due today, with full task rows (checkbox,
-  stars, subtasks, timer, delete all still work there). Past-due,
-  unfinished tasks show in red in the list view too. Navigate months
-  in Calendar with ‹ ›, or jump back with "Today".
+  month grid like Google Calendar: each day shows a "done/total"
+  counter (green when everything's checked off — a quick read on how
+  productive that day was) plus a row of small checkbox icons, one per
+  task due that day — hover/tap one to see its text, click to toggle
+  it done right from the calendar. The ＋ on any day (or tapping empty
+  space in it) opens a quick-add box that creates a task due that day.
+  "☀ Today" shows a short worklist — anything overdue up top, then
+  whatever's due today, with full task rows (checkbox, stars,
+  subtasks, timer, delete all still work there). Past-due, unfinished
+  tasks show in red in the list view too. Navigate months in Calendar
+  with ‹ ›, or jump back with "Today".
 
 ## Notes
 
