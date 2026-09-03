@@ -244,7 +244,7 @@ body{ min-height:100vh; }
 .calendar-day-head{ display:flex; align-items:center; gap:5px; }
 .calendar-day-counter{
   font-size:11px; font-weight:800; color: var(--accent); background: var(--accent-dim);
-  border-radius:999px; min-width:16px; height:16px; padding: 0 5px; line-height:16px;
+  border-radius:999px; min-width:22px; height:16px; padding: 0 6px; line-height:16px;
   text-align:center; flex:none; font-variant-numeric: tabular-nums;
 }
 .calendar-day-counter.all-done{ background: #2a9d5c; color: #fff; }
@@ -258,7 +258,7 @@ body{ min-height:100vh; }
 .calendar-cell.today .calendar-day-head .calendar-add-btn{ opacity:1; }
 .calendar-day-tasks{ display:flex; flex-wrap:wrap; gap:2px 3px; min-width:0; }
 .calendar-task-box{
-  font-size:13px; line-height:1; cursor:pointer; color: var(--accent); flex:none;
+  font-size:13px; line-height:1; color: var(--accent); flex:none;
 }
 .calendar-task-box.calendar-subtask-box{ font-size:11px; opacity:0.85; }
 .calendar-task-box.done{ color: var(--danger); font-weight:700; }
@@ -272,7 +272,7 @@ body{ min-height:100vh; }
   #calendar-grid{ grid-auto-rows: minmax(56px, auto); gap:3px; }
   .calendar-cell{ padding:3px 3px 4px; }
   .calendar-task-box{ font-size:11.5px; }
-  .calendar-day-counter{ font-size:9.5px; min-width:14px; height:14px; line-height:14px; padding:0 4px; }
+  .calendar-day-counter{ font-size:9.5px; min-width:19px; height:14px; line-height:14px; padding:0 5px; }
   .calendar-weekday{ font-size:9.5px; }
   #cal-month-label{ min-width:120px; font-size:13.5px; }
   .calendar-add-btn{ opacity:1; } /* no hover on touch — keep it visible */

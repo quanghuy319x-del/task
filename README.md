@@ -90,22 +90,23 @@ your other Drive files.
   file automatically, a moment after you make it.
 - **Due dates + Calendar & Today views** — click the 📅 on any task to
   give it a due date. "📅 Calendar" (the default tab) shows a simple
-  month grid like Google Calendar: each day shows a "done/total"
-  counter (green when everything's checked off — a quick read on how
-  productive that day was) plus a row of small checkbox icons — one per
-  task due that day, except a task with 2+ subtasks gets broken into
-  one box per subtask instead so you can tick each one individually.
-  Click anywhere else on a day to open that day's full task list in a
-  blurred-backdrop popup — same rich rows as List/Today (checkbox,
-  stars, subtasks, timer, delete) plus its own "add a task" box; press
-  Esc or tap outside the card to close it. — hover/tap one to see its text, click to toggle
-  it done right from the calendar. The ＋ on any day still opens a fast
-  inline quick-add box right there in the grid (no popup) that creates a task due that day.
-  "☀ Today" shows a short worklist — anything overdue up top, then
-  whatever's due today, with full task rows (checkbox, stars,
-  subtasks, timer, delete all still work there). Past-due, unfinished
-  tasks show in red in the list view too. Navigate months in Calendar
-  with ‹ ›, or jump back with "Today".
+  month grid like Google Calendar: each day shows a "✓done" counter
+  (green when everything's checked off — a quick read on how
+  productive that day was) plus a row of small checkbox icons — one
+  per task due that day, except a task with 2+ subtasks gets broken
+  into one box per subtask instead. These icons are display-only —
+  hover/tap one to see its text, but tapping anywhere on a day (icons
+  included) opens that day's full task list in a blurred-backdrop
+  popup, where you check things off, edit text, add subtasks, etc. —
+  same rich rows as List/Today. That popup also has its own "add a
+  task" box; press Esc or tap outside the card to close it. The ＋ in
+  the corner of each day still opens a fast inline quick-add box right
+  there in the grid (no popup) for jotting a task down without leaving
+  the calendar. "☀ Today" shows a short worklist — anything overdue up
+  top, then whatever's due today, with full task rows (checkbox,
+  stars, subtasks, timer, delete all still work there). Past-due,
+  unfinished tasks show in red in the list view too. Navigate months
+  in Calendar with ‹ ›, or jump back with "Today".
 
 ## Notes
 

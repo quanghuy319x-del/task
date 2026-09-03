@@ -715,7 +715,7 @@
         const doneCount = dayItems.filter((it) => it.done).length;
         const counter = document.createElement("span");
         counter.className = "calendar-day-counter" + (doneCount === dayItems.length ? " all-done" : "");
-        counter.textContent = String(doneCount);
+        counter.textContent = `✓${doneCount}`;
         counter.title = `${doneCount} of ${dayItems.length} done`;
         dayHead.appendChild(counter);
       }
@@ -740,17 +740,9 @@
         box.className = "calendar-task-box" + (it.done ? " done" : "") + (it.kind === "subtask" ? " calendar-subtask-box" : "");
         box.textContent = it.done ? "☑" : "☐";
         box.title = it.label || "Untitled task";
-        box.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if (it.kind === "subtask") {
-            it.subtask.done = !it.subtask.done;
-            syncTaskDoneFromSubtasks(it.task);
-          } else {
-            it.task.done = !it.task.done;
-            getTaskSubtasks(it.task).forEach((s) => { s.done = it.task.done; });
-          }
-          persist();
-        });
+        // No click handler here on purpose — tapping a box (like
+        // tapping anywhere else on the day) just opens that day's
+        // full task list, where checking/editing happens instead.
         tasksWrap.appendChild(box);
       });
       if (dayItems.length > CAL_MAX_BOXES) {
