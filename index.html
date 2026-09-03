@@ -13,7 +13,7 @@
      by their exact URL, so "app.js" and "app.js?v=2" count as completely
      different files to them — bumping this forces everyone's browser to
      fetch your new version instead of reusing an old cached one. -->
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 
@@ -72,6 +72,10 @@
     </div>
 
     <div id="today-view" class="today-view hidden">
+      <div id="today-add-task-row" class="today-add-task-row">
+        <textarea id="today-new-task-input" rows="1" class="autosize-input" placeholder="Add a task for today and press Enter…" spellcheck="false"></textarea>
+      </div>
+
       <div id="today-overdue-section" class="today-section hidden">
         <h2 class="today-section-title today-overdue-title">Overdue</h2>
         <ul id="today-overdue-list" class="today-task-list"></ul>
@@ -86,6 +90,6 @@
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="app.js?v=7"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

@@ -129,6 +129,7 @@
   const todayListEl = $("#today-list");
   const todayEmptyStateEl = $("#today-empty-state");
   const todayDateLabelEl = $("#today-date-label");
+  const todayNewTaskInput = $("#today-new-task-input");
   let currentView = "calendar"; // "list" | "calendar" | "today" — calendar is the default tab
   let calCursor = new Date();
   calCursor.setDate(1); // first of the currently-displayed month
@@ -606,6 +607,22 @@
     }
   });
 
+  // Same add-a-task flow as the list view, but tasks added from the
+  // Today tab are automatically due today so they show up right where
+  // you added them.
+  todayNewTaskInput.addEventListener("input", () => autosizeTextarea(todayNewTaskInput));
+  todayNewTaskInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      const v = todayNewTaskInput.value.trim();
+      if (!v) return;
+      tasks.push({ id: uid(), text: v, done: false, stars: 0, due: toISODate(new Date()), subtasks: [] });
+      todayNewTaskInput.value = "";
+      autosizeTextarea(todayNewTaskInput);
+      persist();
+    }
+  });
+
   sortStarsBtn.addEventListener("click", () => {
     if (tasks.length < 2) return;
     tasks = tasks.slice().sort((a, b) => getTaskStars(b) - getTaskStars(a));
@@ -682,12 +699,13 @@
       dayHead.appendChild(dayNum);
 
       const dayTasks = tasksByDate[iso] || [];
-      if (dayTasks.length) {
-        const doneCount = dayTasks.filter((t) => t.done).length;
+      const dayItems = calendarDayItems(dayTasks);
+      if (dayItems.length) {
+        const doneCount = dayItems.filter((it) => it.done).length;
         const counter = document.createElement("span");
-        counter.className = "calendar-day-counter" + (doneCount === dayTasks.length ? " all-done" : "");
-        counter.textContent = `${doneCount}/${dayTasks.length}`;
-        counter.title = `${doneCount} of ${dayTasks.length} tasks done`;
+        counter.className = "calendar-day-counter" + (doneCount === dayItems.length ? " all-done" : "");
+        counter.textContent = String(doneCount);
+        counter.title = `${doneCount} of ${dayItems.length} done`;
         dayHead.appendChild(counter);
       }
 
@@ -706,24 +724,29 @@
 
       const tasksWrap = document.createElement("div");
       tasksWrap.className = "calendar-day-tasks";
-      dayTasks.slice(0, CAL_MAX_BOXES).forEach((t) => {
+      dayItems.slice(0, CAL_MAX_BOXES).forEach((it) => {
         const box = document.createElement("span");
-        box.className = "calendar-task-box" + (t.done ? " done" : "");
-        box.textContent = t.done ? "☑" : "☐";
-        box.title = t.text || "Untitled task";
+        box.className = "calendar-task-box" + (it.done ? " done" : "") + (it.kind === "subtask" ? " calendar-subtask-box" : "");
+        box.textContent = it.done ? "☑" : "☐";
+        box.title = it.label || "Untitled task";
         box.addEventListener("click", (e) => {
           e.stopPropagation();
-          t.done = !t.done;
-          getTaskSubtasks(t).forEach((s) => { s.done = t.done; });
+          if (it.kind === "subtask") {
+            it.subtask.done = !it.subtask.done;
+            syncTaskDoneFromSubtasks(it.task);
+          } else {
+            it.task.done = !it.task.done;
+            getTaskSubtasks(it.task).forEach((s) => { s.done = it.task.done; });
+          }
           persist();
         });
         tasksWrap.appendChild(box);
       });
-      if (dayTasks.length > CAL_MAX_BOXES) {
+      if (dayItems.length > CAL_MAX_BOXES) {
         const more = document.createElement("span");
         more.className = "calendar-more-label";
-        more.textContent = `+${dayTasks.length - CAL_MAX_BOXES}`;
-        more.title = `${dayTasks.length - CAL_MAX_BOXES} more task(s) — open List or Today view to see them all`;
+        more.textContent = `+${dayItems.length - CAL_MAX_BOXES}`;
+        more.title = `${dayItems.length - CAL_MAX_BOXES} more — open List or Today view to see them all`;
         tasksWrap.appendChild(more);
       }
       cell.appendChild(tasksWrap);
@@ -731,6 +754,24 @@
       cell.addEventListener("click", () => openCalendarQuickAdd(cell, iso));
       calGridEl.appendChild(cell);
     }
+  }
+
+  // A task with 2+ subtasks gets broken into one small box per subtask
+  // (so you can see/tick each one from the calendar); a task with 0-1
+  // subtasks stays a single box for the whole task, same as before.
+  function calendarDayItems(dayTasks) {
+    const items = [];
+    dayTasks.forEach((t) => {
+      const subs = getTaskSubtasks(t);
+      if (subs.length >= 2) {
+        subs.forEach((s) => {
+          items.push({ kind: "subtask", task: t, subtask: s, done: !!s.done, label: `${t.text || "Untitled task"} — ${s.text || "Untitled subtask"}` });
+        });
+      } else {
+        items.push({ kind: "task", task: t, done: !!t.done, label: t.text || "Untitled task" });
+      }
+    });
+    return items;
   }
 
   function openCalendarQuickAdd(cell, iso) {

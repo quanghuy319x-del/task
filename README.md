@@ -92,8 +92,9 @@ your other Drive files.
   give it a due date. "📅 Calendar" (the default tab) shows a simple
   month grid like Google Calendar: each day shows a "done/total"
   counter (green when everything's checked off — a quick read on how
-  productive that day was) plus a row of small checkbox icons, one per
-  task due that day — hover/tap one to see its text, click to toggle
+  productive that day was) plus a row of small checkbox icons — one per
+  task due that day, except a task with 2+ subtasks gets broken into
+  one box per subtask instead so you can tick each one individually — hover/tap one to see its text, click to toggle
   it done right from the calendar. The ＋ on any day (or tapping empty
   space in it) opens a quick-add box that creates a task due that day.
   "☀ Today" shows a short worklist — anything overdue up top, then

@@ -243,11 +243,11 @@ body{ min-height:100vh; }
 .calendar-day-num{ font-size:12px; font-weight:700; color: var(--text-dim); flex:none; }
 .calendar-day-head{ display:flex; align-items:center; gap:5px; }
 .calendar-day-counter{
-  font-size:10px; font-weight:700; color: var(--text-dim); background: var(--card-border);
-  border-radius:999px; padding: 1px 6px; line-height:1.4; flex:none;
-  font-variant-numeric: tabular-nums;
+  font-size:11px; font-weight:800; color: var(--accent); background: var(--accent-dim);
+  border-radius:999px; min-width:16px; height:16px; padding: 0 5px; line-height:16px;
+  text-align:center; flex:none; font-variant-numeric: tabular-nums;
 }
-.calendar-day-counter.all-done{ background: #e3f5e9; color: #2a9d5c; }
+.calendar-day-counter.all-done{ background: #2a9d5c; color: #fff; }
 .calendar-add-btn{
   border:none; background:none; color: var(--text-faint); cursor:pointer;
   font-size:13px; font-weight:700; line-height:1; padding: 1px 4px; border-radius:5px;
@@ -260,6 +260,7 @@ body{ min-height:100vh; }
 .calendar-task-box{
   font-size:13px; line-height:1; cursor:pointer; color: var(--accent); flex:none;
 }
+.calendar-task-box.calendar-subtask-box{ font-size:11px; opacity:0.85; }
 .calendar-task-box.done{ color: var(--danger); font-weight:700; }
 .calendar-more-label{ font-size:10px; color: var(--text-faint); align-self:center; }
 .calendar-quick-add{
@@ -271,7 +272,7 @@ body{ min-height:100vh; }
   #calendar-grid{ grid-auto-rows: minmax(56px, auto); gap:3px; }
   .calendar-cell{ padding:3px 3px 4px; }
   .calendar-task-box{ font-size:11.5px; }
-  .calendar-day-counter{ font-size:9px; padding:1px 4px; }
+  .calendar-day-counter{ font-size:9.5px; min-width:14px; height:14px; line-height:14px; padding:0 4px; }
   .calendar-weekday{ font-size:9.5px; }
   #cal-month-label{ min-width:120px; font-size:13.5px; }
   .calendar-add-btn{ opacity:1; } /* no hover on touch — keep it visible */
@@ -279,6 +280,7 @@ body{ min-height:100vh; }
 
 /* ================= Today view ================= */
 .today-view.hidden{ display:none; }
+.today-add-task-row{ display:flex; gap:8px; align-items:flex-end; margin-bottom: 18px; }
 .today-section{ margin-bottom: 22px; }
 .today-section.hidden{ display:none; }
 .today-section-title{
