@@ -1,0 +1,991 @@
+(function () {
+  "use strict";
+
+  const $ = (sel) => document.querySelector(sel);
+  const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+  function autosizeTextarea(el) {
+    el.style.height = "auto";
+    el.style.height = Math.min(160, el.scrollHeight) + "px";
+  }
+
+  /* ================= Data model =================
+     A single flat list of tasks — this app IS the tasks feature, promoted
+     out of Branchline's per-node "Tasks…" modal into the whole page.
+     Same shape, same rules:
+       task = { id, text, done, stars (0-3), subtasks: [{id, text, done}] }
+     Stored as one JSON blob { tasks, updatedAt } — locally in
+     localStorage always, and (once signed in) mirrored to a single
+     "tasks.json" file in the person's own Google Drive, the same way
+     Branchline mirrors each mind map. */
+  const STORE_KEY = "todo_tasks_v1";
+  let tasks = [];
+  let dataUpdatedAt = 0;
+
+  function loadLocal() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+      if (parsed && Array.isArray(parsed.tasks)) {
+        tasks = parsed.tasks;
+        dataUpdatedAt = parsed.updatedAt || 0;
+        return;
+      }
+    } catch (e) {}
+    tasks = [];
+    dataUpdatedAt = 0;
+  }
+  function saveLocal() {
+    dataUpdatedAt = Date.now();
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ tasks, updatedAt: dataUpdatedAt })); } catch (e) {}
+  }
+  // Every edit funnels through here: save locally, refresh the UI, and
+  // let Drive know there's something new to push up.
+  function persist() {
+    saveLocal();
+    renderAll();
+    DriveDB.markDirty();
+  }
+
+  /* ================= Task/subtask helpers =================
+     Identical rules to Branchline's node-level task feature. */
+  function getTaskStars(t) {
+    return clamp(Math.round(t.stars) || 0, 0, 3);
+  }
+  // 0 stars = 1x weight, 1 star = 2x, 2 stars = 3x, 3 stars = 4x — each
+  // star of priority makes that task's completion move the overall
+  // progress bar further.
+  function taskWeight(t) {
+    const stars = getTaskStars(t);
+    return stars > 0 ? stars + 1 : 1;
+  }
+  function getTaskSubtasks(t) {
+    return (t && Array.isArray(t.subtasks)) ? t.subtasks : [];
+  }
+  function taskSubtaskProgress(t) {
+    const subs = getTaskSubtasks(t);
+    const total = subs.length;
+    const done = subs.filter(s => s.done).length;
+    return { done, total, pct: total ? done / total : 0 };
+  }
+  // Recomputes a task's own `done` from its subtasks (all done => task
+  // done). No-op for tasks without any subtasks yet.
+  function syncTaskDoneFromSubtasks(t) {
+    const subs = getTaskSubtasks(t);
+    if (subs.length) t.done = subs.every(s => s.done);
+  }
+  // Aggregate progress across the whole list — a task with subtasks
+  // contributes their done/total counts (weighted); a plain task counts
+  // as a single unit via its own checkbox.
+  function overallProgress() {
+    let total = 0, done = 0;
+    tasks.forEach((t) => {
+      const weight = taskWeight(t);
+      const subs = getTaskSubtasks(t);
+      if (subs.length) {
+        total += subs.length * weight;
+        done += subs.filter(s => s.done).length * weight;
+      } else {
+        total += weight;
+        if (t.done) done += weight;
+      }
+    });
+    return { done, total, pct: total ? done / total : 0 };
+  }
+
+  /* ================= Rendering ================= */
+  const taskListEl = $("#task-list");
+  const emptyStateEl = $("#empty-state");
+  const progressFillEl = $("#progress-fill");
+  const progressLabelEl = $("#progress-label");
+  const newTaskInput = $("#new-task-input");
+  const sortStarsBtn = $("#sort-stars-btn");
+
+  // Which tasks have their "add a subtask" input expanded, and which have
+  // their subtask checklist explicitly collapsed — same as Branchline
+  // (not persisted, resets on reload).
+  const subtaskAddOpenFor = new Set();
+  const collapsedSubtaskIds = new Set();
+
+  function renderAll() {
+    renderProgress();
+    renderTaskList();
+  }
+
+  function renderProgress() {
+    const p = overallProgress();
+    progressFillEl.style.width = (p.pct * 100).toFixed(1) + "%";
+    progressLabelEl.textContent = `${p.done}/${p.total || 0}`;
+  }
+
+  function renderTaskList() {
+    taskListEl.innerHTML = "";
+    emptyStateEl.classList.toggle("hidden", tasks.length > 0);
+    tasks.forEach((t) => taskListEl.appendChild(buildTaskRow(t)));
+  }
+
+  function buildTaskRow(t) {
+    const li = document.createElement("li");
+    const subProg = taskSubtaskProgress(t);
+    const subExpanded = (subProg.total > 0 || subtaskAddOpenFor.has(t.id)) && !collapsedSubtaskIds.has(t.id);
+    li.className = "task-row" + (t.done ? " done" : "");
+
+    // Drag-reorder (whole task, ⠿ handle).
+    li.addEventListener("dragover", (e) => {
+      if (taskDragState && taskDragState.taskId !== t.id) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        const rect = li.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < rect.height / 2;
+        li.classList.toggle("drag-over-top", before);
+        li.classList.toggle("drag-over-bottom", !before);
+      } else if (subtaskDragState) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        li.classList.add("subtask-drop-target");
+      }
+    });
+    li.addEventListener("dragleave", (e) => {
+      if (e.relatedTarget && li.contains(e.relatedTarget)) return;
+      li.classList.remove("drag-over-top", "drag-over-bottom", "subtask-drop-target");
+    });
+    li.addEventListener("drop", (e) => {
+      if (taskDragState && taskDragState.taskId !== t.id) {
+        e.preventDefault();
+        const rect = li.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < rect.height / 2;
+        li.classList.remove("drag-over-top", "drag-over-bottom");
+        reorderTask(taskDragState.taskId, t.id, before);
+      } else if (subtaskDragState) {
+        e.preventDefault();
+        li.classList.remove("subtask-drop-target");
+        moveSubtask(subtaskDragState.taskId, subtaskDragState.subtaskId, t.id, null, false);
+      }
+    });
+
+    const handle = document.createElement("span");
+    handle.className = "task-drag-handle";
+    handle.textContent = "⠿";
+    handle.title = "Drag to reorder";
+    handle.draggable = true;
+    handle.addEventListener("mousedown", (e) => e.stopPropagation());
+    handle.addEventListener("dragstart", (e) => startTaskDrag(e, li, t.id));
+    handle.addEventListener("dragend", () => endTaskDrag(li));
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.className = "task-checkbox";
+    cb.checked = !!t.done;
+    cb.addEventListener("change", () => {
+      pushEditMark();
+      t.done = cb.checked;
+      getTaskSubtasks(t).forEach(s => { s.done = cb.checked; });
+      persist();
+    });
+
+    const main = document.createElement("div");
+    main.className = "task-main";
+
+    const top = document.createElement("div");
+    top.className = "task-row-top";
+
+    const text = document.createElement("div");
+    text.className = "task-text";
+    text.contentEditable = "false";
+    text.spellcheck = false;
+    text.textContent = t.text;
+    text.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      text.contentEditable = "true";
+      text.focus();
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+    text.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") { e.preventDefault(); text.blur(); }
+      else if (e.key === "Escape") { e.preventDefault(); text.textContent = t.text; text.blur(); }
+    });
+    text.addEventListener("blur", () => {
+      const v = text.textContent.trim();
+      if (v && v !== t.text) { t.text = v; persist(); }
+      else text.textContent = t.text;
+      text.contentEditable = "false";
+    });
+
+    const stars = document.createElement("div");
+    stars.className = "task-stars";
+    for (let i = 1; i <= 3; i++) {
+      const s = document.createElement("button");
+      s.type = "button";
+      s.className = "task-star" + (getTaskStars(t) >= i ? " filled" : "");
+      s.textContent = "★";
+      s.title = i + " star priority";
+      s.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const cur = getTaskStars(t);
+        t.stars = cur === i ? 0 : i; // clicking the current level clears it
+        persist();
+      });
+      stars.appendChild(s);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "task-actions";
+
+    const timerBtn = document.createElement("button");
+    timerBtn.type = "button";
+    timerBtn.className = "task-icon-btn task-timer-start";
+    timerBtn.title = "Start a focus timer for this task";
+    timerBtn.textContent = "⏱";
+    timerBtn.addEventListener("click", (e) => { e.stopPropagation(); startFocusTimer(t.id, t.text); });
+
+    const addSubBtn = document.createElement("button");
+    addSubBtn.type = "button";
+    addSubBtn.className = "task-icon-btn";
+    addSubBtn.title = "Add a subtask";
+    addSubBtn.textContent = "▸+";
+    addSubBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      collapsedSubtaskIds.delete(t.id);
+      subtaskAddOpenFor.add(t.id);
+      renderTaskList();
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "task-icon-btn task-delete";
+    delBtn.title = "Delete task";
+    delBtn.textContent = "🗑";
+    delBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete "${t.text || "this task"}"?`)) return;
+      tasks = tasks.filter(x => x.id !== t.id);
+      persist();
+    });
+
+    actions.appendChild(timerBtn);
+    actions.appendChild(addSubBtn);
+    actions.appendChild(delBtn);
+
+    top.appendChild(cb);
+    top.appendChild(text);
+    top.appendChild(stars);
+    top.appendChild(actions);
+    main.appendChild(top);
+
+    if (subProg.total > 0) {
+      const mini = document.createElement("div");
+      mini.className = "task-progress-mini";
+      const fill = document.createElement("div");
+      fill.className = "task-progress-mini-fill";
+      fill.style.width = (subProg.pct * 100).toFixed(1) + "%";
+      mini.appendChild(fill);
+      main.appendChild(mini);
+    }
+
+    if (subExpanded) main.appendChild(buildSubtaskPanel(t));
+    else if (subtaskAddOpenFor.has(t.id)) main.appendChild(buildSubtaskAddRow(t));
+
+    li.appendChild(handle);
+    li.appendChild(main);
+    return li;
+  }
+
+  function buildSubtaskPanel(t) {
+    const wrap = document.createElement("div");
+    const list = document.createElement("ul");
+    list.className = "subtask-list";
+
+    getTaskSubtasks(t).forEach((s) => {
+      const row = document.createElement("li");
+      row.className = "subtask-row" + (s.done ? " done" : "");
+
+      row.addEventListener("dragover", (e) => {
+        if (!subtaskDragState) return;
+        if (subtaskDragState.taskId === t.id && subtaskDragState.subtaskId === s.id) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "move";
+        const rect = row.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < rect.height / 2;
+        row.classList.toggle("drag-over-top", before);
+        row.classList.toggle("drag-over-bottom", !before);
+      });
+      row.addEventListener("dragleave", (e) => {
+        if (e.relatedTarget && row.contains(e.relatedTarget)) return;
+        row.classList.remove("drag-over-top", "drag-over-bottom");
+      });
+      row.addEventListener("drop", (e) => {
+        if (!subtaskDragState) return;
+        if (subtaskDragState.taskId === t.id && subtaskDragState.subtaskId === s.id) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = row.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < rect.height / 2;
+        row.classList.remove("drag-over-top", "drag-over-bottom");
+        moveSubtask(subtaskDragState.taskId, subtaskDragState.subtaskId, t.id, s.id, before);
+      });
+
+      const shandle = document.createElement("span");
+      shandle.className = "task-drag-handle subtask-drag-handle";
+      shandle.textContent = "⠿";
+      shandle.title = "Drag to reorder";
+      shandle.draggable = true;
+      shandle.addEventListener("mousedown", (e) => e.stopPropagation());
+      shandle.addEventListener("dragstart", (e) => startSubtaskDrag(e, row, t.id, s.id));
+      shandle.addEventListener("dragend", () => endSubtaskDrag(row));
+
+      const scb = document.createElement("input");
+      scb.type = "checkbox";
+      scb.className = "subtask-checkbox";
+      scb.checked = !!s.done;
+      scb.addEventListener("change", () => {
+        s.done = scb.checked;
+        syncTaskDoneFromSubtasks(t);
+        persist();
+      });
+
+      const stext = document.createElement("span");
+      stext.className = "subtask-text";
+      stext.contentEditable = "false";
+      stext.spellcheck = false;
+      stext.textContent = s.text;
+      stext.addEventListener("dblclick", (e) => {
+        e.preventDefault();
+        stext.contentEditable = "true";
+        stext.focus();
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(stext);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      });
+      stext.addEventListener("keydown", (e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") { e.preventDefault(); stext.blur(); }
+        else if (e.key === "Escape") { e.preventDefault(); stext.textContent = s.text; stext.blur(); }
+      });
+      stext.addEventListener("blur", () => {
+        const v = stext.textContent.trim();
+        if (v && v !== s.text) { s.text = v; persist(); }
+        else stext.textContent = s.text;
+        stext.contentEditable = "false";
+      });
+
+      const scopy = document.createElement("button");
+      scopy.type = "button";
+      scopy.className = "subtask-copy";
+      scopy.title = "Copy subtask text";
+      scopy.textContent = "⧉";
+      scopy.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const finish = () => {
+          scopy.classList.add("copied");
+          scopy.textContent = "✓";
+          setTimeout(() => { scopy.classList.remove("copied"); scopy.textContent = "⧉"; }, 1000);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(s.text).then(finish).catch(finish);
+        } else {
+          const ta = document.createElement("textarea");
+          ta.value = s.text; ta.style.position = "fixed"; ta.style.opacity = "0";
+          document.body.appendChild(ta); ta.select();
+          try { document.execCommand("copy"); } catch (err) {}
+          document.body.removeChild(ta);
+          finish();
+        }
+      });
+
+      const sdel = document.createElement("button");
+      sdel.type = "button";
+      sdel.className = "subtask-delete";
+      sdel.title = "Delete subtask";
+      sdel.textContent = "×";
+      sdel.addEventListener("click", () => {
+        if (!confirm(`Delete the subtask "${s.text || "Untitled subtask"}"?`)) return;
+        t.subtasks = getTaskSubtasks(t).filter(x => x !== s);
+        syncTaskDoneFromSubtasks(t);
+        persist();
+      });
+
+      row.appendChild(shandle);
+      row.appendChild(scb);
+      row.appendChild(stext);
+      row.appendChild(scopy);
+      row.appendChild(sdel);
+      list.appendChild(row);
+    });
+
+    wrap.appendChild(list);
+    if (subtaskAddOpenFor.has(t.id)) wrap.appendChild(buildSubtaskAddRow(t));
+    return wrap;
+  }
+
+  function buildSubtaskAddRow(t) {
+    const addRow = document.createElement("div");
+    addRow.className = "subtask-add-row";
+    const addInput = document.createElement("textarea");
+    addInput.rows = 1;
+    addInput.className = "subtask-new-input autosize-input";
+    addInput.placeholder = "Add a subtask and press Enter…";
+    addInput.spellcheck = false;
+    addInput.addEventListener("click", (e) => e.stopPropagation());
+    addInput.addEventListener("input", () => autosizeTextarea(addInput));
+    addInput.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        const v = addInput.value.trim();
+        if (!v) return;
+        if (!Array.isArray(t.subtasks)) t.subtasks = [];
+        t.subtasks.push({ id: uid(), text: v, done: false });
+        t.done = false; // a fresh, unchecked subtask means the parent can't be fully done anymore
+        persist();
+        requestAnimationFrame(() => {
+          const el = taskListEl.querySelector(`.subtask-new-input`);
+          if (el) el.focus();
+        });
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        addInput.blur();
+      }
+    });
+    addInput.addEventListener("blur", () => {
+      if (!addInput.value.trim()) {
+        subtaskAddOpenFor.delete(t.id);
+        renderTaskList();
+      }
+    });
+    addRow.appendChild(addInput);
+    requestAnimationFrame(() => addInput.focus());
+    return addRow;
+  }
+
+  // Undo isn't implemented in this standalone app (no edit history to
+  // manage) — this hook exists purely so a future undo feature has one
+  // place to attach to.
+  function pushEditMark() {}
+
+  /* ================= Task drag-reorder ================= */
+  let taskDragState = null;
+  function startTaskDrag(e, li, taskId) {
+    e.stopPropagation();
+    taskDragState = { taskId };
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", ""); } catch (err) {}
+    li.classList.add("task-dragging");
+  }
+  function endTaskDrag(li) {
+    li.classList.remove("task-dragging");
+    taskDragState = null;
+    taskListEl.querySelectorAll(".task-row").forEach(r => r.classList.remove("drag-over-top", "drag-over-bottom"));
+  }
+  function reorderTask(sourceTaskId, targetTaskId, before) {
+    if (sourceTaskId === targetTaskId) return;
+    const list = tasks.slice();
+    const fromIdx = list.findIndex(x => x.id === sourceTaskId);
+    if (fromIdx === -1) return;
+    const [moved] = list.splice(fromIdx, 1);
+    const toIdx = list.findIndex(x => x.id === targetTaskId);
+    if (toIdx === -1) list.push(moved);
+    else list.splice(before ? toIdx : toIdx + 1, 0, moved);
+    tasks = list;
+    persist();
+  }
+
+  /* ================= Subtask drag-reorder ================= */
+  let subtaskDragState = null;
+  function startSubtaskDrag(e, row, taskId, subtaskId) {
+    e.stopPropagation();
+    subtaskDragState = { taskId, subtaskId };
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", ""); } catch (err) {}
+    row.classList.add("task-dragging");
+  }
+  function endSubtaskDrag(row) {
+    row.classList.remove("task-dragging");
+    subtaskDragState = null;
+    taskListEl.querySelectorAll(".subtask-row").forEach(r => r.classList.remove("drag-over-top", "drag-over-bottom"));
+    taskListEl.querySelectorAll(".task-row.subtask-drop-target").forEach(r => r.classList.remove("subtask-drop-target"));
+  }
+  function moveSubtask(sourceTaskId, sourceSubtaskId, targetTaskId, targetSubtaskId, before) {
+    if (sourceTaskId === targetTaskId && sourceSubtaskId === targetSubtaskId) return;
+    const sourceTask = tasks.find(x => x.id === sourceTaskId);
+    const targetTask = tasks.find(x => x.id === targetTaskId);
+    if (!sourceTask || !targetTask) return;
+    const sourceSubs = getTaskSubtasks(sourceTask).slice();
+    const fromIdx = sourceSubs.findIndex(x => x.id === sourceSubtaskId);
+    if (fromIdx === -1) return;
+    const [moved] = sourceSubs.splice(fromIdx, 1);
+
+    const sameTask = sourceTaskId === targetTaskId;
+    const destSubs = sameTask ? sourceSubs : getTaskSubtasks(targetTask).slice();
+    const toIdx = targetSubtaskId ? destSubs.findIndex(x => x.id === targetSubtaskId) : -1;
+    if (toIdx === -1) destSubs.push(moved);
+    else destSubs.splice(before ? toIdx : toIdx + 1, 0, moved);
+
+    sourceTask.subtasks = sourceSubs;
+    targetTask.subtasks = destSubs;
+    if (!sameTask) {
+      syncTaskDoneFromSubtasks(sourceTask);
+      syncTaskDoneFromSubtasks(targetTask);
+    }
+    persist();
+  }
+
+  /* ================= Add task / sort by stars ================= */
+  newTaskInput.addEventListener("input", () => autosizeTextarea(newTaskInput));
+  newTaskInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      const v = newTaskInput.value.trim();
+      if (!v) return;
+      tasks.push({ id: uid(), text: v, done: false, stars: 0, subtasks: [] });
+      newTaskInput.value = "";
+      autosizeTextarea(newTaskInput);
+      persist();
+    }
+  });
+
+  sortStarsBtn.addEventListener("click", () => {
+    if (tasks.length < 2) return;
+    tasks = tasks.slice().sort((a, b) => getTaskStars(b) - getTaskStars(a));
+    persist();
+  });
+
+  /* ================= Focus timer =================
+     One global timer, scoped to whichever task's ⏱ was clicked last —
+     keeps running (via setInterval) even while you're editing other
+     tasks. Starts short (1 min); "+1m" stacks on more time instead of
+     committing to a long duration up front. Same as Branchline. */
+  const FOCUS_DURATION = 60;
+  const FOCUS_EXTEND = 60;
+  let focusTimer = null; // { taskId, taskText, remaining, duration, paused, intervalId }
+  let focusJustCompleted = null;
+  let lastFocusTaskText = "";
+  let focusChimeIntervalId = null, focusChimeCapTimeoutId = null, focusChimeDismissHandler = null;
+  const FOCUS_CHIME_INTERVAL = 2500;
+  const FOCUS_CHIME_MAX_MS = 15000;
+
+  const BASE_TITLE = document.title;
+  const TITLE_TASK_MAX = 40;
+  const focusTimerWidgetEl = $("#focus-timer-widget");
+
+  function titleTaskLabel(text) {
+    const t = (text || "").trim() || "Focus";
+    return t.length > TITLE_TASK_MAX ? t.slice(0, TITLE_TASK_MAX - 1) + "…" : t;
+  }
+  function formatFocusTime(totalSeconds) {
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
+  function updateFocusTitle() {
+    if (focusTimer) {
+      document.title = `${focusTimer.paused ? "⏸" : "⏱"} ${formatFocusTime(focusTimer.remaining)} · ${titleTaskLabel(focusTimer.taskText)}`;
+    } else if (focusChimeIntervalId) {
+      document.title = `⏰ Time's up! · ${titleTaskLabel(lastFocusTaskText)}`;
+    } else {
+      document.title = BASE_TITLE;
+    }
+  }
+
+  function renderFocusTimerWidget() {
+    focusTimerWidgetEl.innerHTML = "";
+    if (focusTimer) {
+      const timeLabel = document.createElement("span");
+      timeLabel.className = "task-timer-time" + (focusTimer.paused ? " paused" : "");
+      timeLabel.textContent = formatFocusTime(focusTimer.remaining);
+
+      const label = document.createElement("span");
+      label.className = "task-timer-label";
+      label.textContent = titleTaskLabel(focusTimer.taskText);
+
+      const pauseBtn = document.createElement("button");
+      pauseBtn.type = "button";
+      pauseBtn.className = "task-timer-btn";
+      pauseBtn.title = focusTimer.paused ? "Resume" : "Pause";
+      pauseBtn.textContent = focusTimer.paused ? "▶" : "⏸";
+      pauseBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleFocusPause(); });
+
+      const extendBtn = document.createElement("button");
+      extendBtn.type = "button";
+      extendBtn.className = "task-timer-btn";
+      extendBtn.title = "Add 1 more minute";
+      extendBtn.textContent = "+1m";
+      extendBtn.addEventListener("click", (e) => { e.stopPropagation(); extendFocusTimer(FOCUS_EXTEND); });
+
+      const stopBtn = document.createElement("button");
+      stopBtn.type = "button";
+      stopBtn.className = "task-timer-btn task-timer-stop";
+      stopBtn.title = "Stop focus timer";
+      stopBtn.textContent = "■";
+      stopBtn.addEventListener("click", (e) => { e.stopPropagation(); stopFocusTimer(); });
+
+      focusTimerWidgetEl.appendChild(timeLabel);
+      focusTimerWidgetEl.appendChild(label);
+      focusTimerWidgetEl.appendChild(pauseBtn);
+      focusTimerWidgetEl.appendChild(extendBtn);
+      focusTimerWidgetEl.appendChild(stopBtn);
+    } else if (focusJustCompleted) {
+      const doneLabel = document.createElement("span");
+      doneLabel.className = "task-timer-done-label";
+      doneLabel.textContent = "✓ Focus done — tap anywhere to stop the chime";
+      focusTimerWidgetEl.appendChild(doneLabel);
+    }
+  }
+
+  function startFocusTimer(taskId, taskText) {
+    stopFocusTimer();
+    stopFocusChime();
+    focusJustCompleted = null;
+    focusTimer = {
+      taskId, taskText,
+      remaining: FOCUS_DURATION,
+      duration: FOCUS_DURATION,
+      paused: false,
+      intervalId: setInterval(focusTimerTick, 1000),
+    };
+    updateFocusTitle();
+    renderFocusTimerWidget();
+  }
+  function focusTimerTick() {
+    if (!focusTimer || focusTimer.paused) return;
+    focusTimer.remaining--;
+    if (focusTimer.remaining <= 0) { focusTimerComplete(); return; }
+    updateFocusTitle();
+    renderFocusTimerWidget();
+  }
+  function toggleFocusPause() {
+    if (!focusTimer) return;
+    focusTimer.paused = !focusTimer.paused;
+    updateFocusTitle();
+    renderFocusTimerWidget();
+  }
+  function extendFocusTimer(seconds) {
+    if (!focusTimer) return;
+    focusTimer.remaining += seconds;
+    focusTimer.duration += seconds;
+    updateFocusTitle();
+    renderFocusTimerWidget();
+  }
+  function stopFocusTimer() {
+    if (focusTimer && focusTimer.intervalId) clearInterval(focusTimer.intervalId);
+    focusTimer = null;
+    updateFocusTitle();
+    renderFocusTimerWidget();
+  }
+  function focusTimerComplete() {
+    const finished = focusTimer;
+    if (finished && finished.intervalId) clearInterval(finished.intervalId);
+    focusTimer = null;
+    if (finished) lastFocusTaskText = finished.taskText;
+    startFocusChime();
+    updateFocusTitle();
+    if (finished) {
+      focusJustCompleted = { taskId: finished.taskId };
+      renderFocusTimerWidget();
+      setTimeout(() => {
+        if (focusJustCompleted && focusJustCompleted.taskId === finished.taskId) {
+          focusJustCompleted = null;
+          renderFocusTimerWidget();
+        }
+      }, 4000);
+    }
+  }
+  function startFocusChime() {
+    stopFocusChime();
+    playFocusChime();
+    focusChimeIntervalId = setInterval(playFocusChime, FOCUS_CHIME_INTERVAL);
+    focusChimeCapTimeoutId = setTimeout(stopFocusChime, FOCUS_CHIME_MAX_MS);
+    focusChimeDismissHandler = () => stopFocusChime();
+    document.addEventListener("pointerdown", focusChimeDismissHandler, { capture: true, once: true });
+    document.addEventListener("keydown", focusChimeDismissHandler, { capture: true, once: true });
+    updateFocusTitle();
+  }
+  function stopFocusChime() {
+    if (focusChimeIntervalId) { clearInterval(focusChimeIntervalId); focusChimeIntervalId = null; }
+    if (focusChimeCapTimeoutId) { clearTimeout(focusChimeCapTimeoutId); focusChimeCapTimeoutId = null; }
+    if (focusChimeDismissHandler) {
+      document.removeEventListener("pointerdown", focusChimeDismissHandler, { capture: true });
+      document.removeEventListener("keydown", focusChimeDismissHandler, { capture: true });
+      focusChimeDismissHandler = null;
+    }
+    updateFocusTitle();
+  }
+  // A short two-tone chime via the Web Audio API — no audio file needed.
+  function playFocusChime() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      [880, 1174.66].forEach((freq, i) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = "sine";
+        o.frequency.value = freq;
+        g.gain.value = 0.0001;
+        o.connect(g); g.connect(ctx.destination);
+        const start = ctx.currentTime + i * 0.16;
+        g.gain.exponentialRampToValueAtTime(0.16, start + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, start + 0.5);
+        o.start(start); o.stop(start + 0.55);
+      });
+      setTimeout(() => ctx.close(), 1000);
+    } catch (e) { /* chime is a nice-to-have, not essential */ }
+  }
+
+  /* ================= Google Sign-In + Drive sync =================
+     Mirrors the single tasks.json blob to the person's own Google Drive
+     — same approach as Branchline's per-map sync, just for one file
+     instead of many. Requires a Google Cloud OAuth Client ID — see the
+     "Google Sign-In setup" section of the README. The client ID below
+     is Branchline's existing one; since Google authorizes by *origin*
+     (scheme+host, not the full path), it already covers this app too
+     as long as it's hosted on the same GitHub Pages domain — no extra
+     Cloud Console setup needed in that case. Replace it if you're
+     hosting this somewhere else. */
+  const GOOGLE_CLIENT_ID = "270018625814-4jfdor9fci625de9b4j7hjta15urcqoe.apps.googleusercontent.com";
+  const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+  const DRIVE_FILE_NAME = "tasks.json";
+  const DRIVE_TOKEN_CACHE_KEY = "todo_drive_token";
+  const POLL_INTERVAL_MS = 20000;
+
+  function saveCachedDriveToken(token, expiresAt) {
+    try { localStorage.setItem(DRIVE_TOKEN_CACHE_KEY, JSON.stringify({ token, expiresAt })); } catch (e) {}
+  }
+  function loadCachedDriveToken() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(DRIVE_TOKEN_CACHE_KEY) || "null");
+      if (parsed && parsed.token && parsed.expiresAt > Date.now() + 60000) return parsed;
+    } catch (e) {}
+    return null;
+  }
+  function clearCachedDriveToken() {
+    try { localStorage.removeItem(DRIVE_TOKEN_CACHE_KEY); } catch (e) {}
+  }
+
+  function describeGisError(err) {
+    const code = (err && err.type) || String(err || "");
+    if (code === "popup_failed_to_open") return "Google's sign-in popup was blocked. Allow popups for this page and try again.";
+    if (code === "popup_closed") return "The Google sign-in popup was closed before finishing.";
+    return "Google sign-in failed (" + code + "). This usually means this page's exact origin isn't listed under \"Authorized JavaScript origins\" for this OAuth client in Google Cloud Console.";
+  }
+
+  const signinBtn = $("#signin-btn");
+  const syncStatusEl = $("#sync-status");
+  const signedOutNoteEl = $("#signed-out-note");
+
+  const DriveDB = {
+    tokenClient: null,
+    accessToken: null,
+    tokenExpiresAt: 0,
+    signedIn: false,
+    needsReauth: false,
+    fileId: null,
+    lastSyncedAt: 0,
+    dirty: false,
+    pushTimer: null,
+    pollTimer: null,
+
+    configured() {
+      return !!GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith("PASTE_");
+    },
+
+    ensureTokenClient() {
+      if (this.tokenClient) return true;
+      if (!window.google || !google.accounts || !google.accounts.oauth2) return false;
+      this.tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: DRIVE_SCOPE,
+        callback: () => {}, // replaced per-request below
+      });
+      return true;
+    },
+
+    async signIn(silent) {
+      if (!this.configured()) {
+        alert("Google Sign-In isn't configured yet for this deployment — see the README's \"Google Sign-In setup\" section.");
+        return;
+      }
+      const cached = loadCachedDriveToken();
+      if (cached) {
+        this.accessToken = cached.token;
+        this.tokenExpiresAt = cached.expiresAt;
+        this.signedIn = true;
+        this.needsReauth = false;
+        updateSyncUI();
+        await this.afterSignIn();
+        return;
+      }
+      if (!this.ensureTokenClient()) {
+        setTimeout(() => this.signIn(silent), 300);
+        return;
+      }
+      this.tokenClient.callback = (resp) => {
+        if (resp.error) {
+          this.needsReauth = true;
+          updateSyncUI(describeGisError(resp));
+          return;
+        }
+        const expiresAt = Date.now() + (resp.expires_in || 3500) * 1000;
+        this.accessToken = resp.access_token;
+        this.tokenExpiresAt = expiresAt;
+        this.signedIn = true;
+        this.needsReauth = false;
+        saveCachedDriveToken(resp.access_token, expiresAt);
+        updateSyncUI();
+        this.afterSignIn();
+      };
+      this.tokenClient.error_callback = (err) => {
+        updateSyncUI(describeGisError(err));
+      };
+      this.tokenClient.requestAccessToken({ prompt: silent ? "none" : "consent" });
+    },
+
+    signOut() {
+      this.signedIn = false;
+      this.accessToken = null;
+      this.fileId = null;
+      clearCachedDriveToken();
+      this.stopPolling();
+      updateSyncUI();
+    },
+
+    async afterSignIn() {
+      startPolling();
+      await this.pullThenPush();
+    },
+
+    authHeaders() {
+      return { Authorization: "Bearer " + this.accessToken };
+    },
+
+    // Finds (or remembers) the id of our one tasks.json file in Drive.
+    // drive.file scope only lets us see files this app itself created,
+    // so a simple name-based search is safe here.
+    async findFile() {
+      if (this.fileId) return this.fileId;
+      const q = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,modifiedTime)`, { headers: this.authHeaders() });
+      if (res.status === 401) { this.needsReauth = true; updateSyncUI("Google session expired"); return null; }
+      const data = await res.json();
+      if (data.files && data.files.length) { this.fileId = data.files[0].id; return this.fileId; }
+      return null;
+    },
+
+    async downloadRemote() {
+      const id = await this.findFile();
+      if (!id) return null;
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`, { headers: this.authHeaders() });
+      if (!res.ok) return null;
+      try { return await res.json(); } catch (e) { return null; }
+    },
+
+    async uploadRemote() {
+      const body = JSON.stringify({ tasks, updatedAt: dataUpdatedAt });
+      const metadata = { name: DRIVE_FILE_NAME, mimeType: "application/json" };
+      const id = await this.findFile();
+      const boundary = "-------todosync" + uid();
+      const multipart =
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(id ? {} : metadata)}\r\n` +
+        `--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
+      const url = id
+        ? `https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=multipart`
+        : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+      const res = await fetch(url, {
+        method: id ? "PATCH" : "POST",
+        headers: { ...this.authHeaders(), "Content-Type": `multipart/related; boundary=${boundary}` },
+        body: multipart,
+      });
+      if (res.status === 401) { this.needsReauth = true; updateSyncUI("Google session expired"); return; }
+      const data = await res.json().catch(() => null);
+      if (data && data.id) this.fileId = data.id;
+      this.lastSyncedAt = Date.now();
+      updateSyncUI();
+    },
+
+    // Pull whatever's on Drive first, keep whichever copy (local vs
+    // remote) has the more recent updatedAt — same last-write-wins merge
+    // Branchline uses — then push the winning copy back up so both
+    // sides agree.
+    async pullThenPush() {
+      try {
+        const remote = await this.downloadRemote();
+        if (remote && Array.isArray(remote.tasks) && (remote.updatedAt || 0) > dataUpdatedAt) {
+          tasks = remote.tasks;
+          dataUpdatedAt = remote.updatedAt;
+          saveLocal();
+          renderAll();
+        }
+        await this.uploadRemote();
+      } catch (e) { /* offline or transient — next poll/edit will retry */ }
+    },
+
+    markDirty() {
+      this.dirty = true;
+      if (!this.signedIn) return;
+      clearTimeout(this.pushTimer);
+      this.pushTimer = setTimeout(() => { this.dirty = false; this.uploadRemote(); }, 1200);
+    },
+
+    startPolling() { this.startPollingImpl(); },
+    startPollingImpl() {
+      this.stopPolling();
+      this.pollTimer = setInterval(async () => {
+        if (!this.signedIn || this.dirty) return;
+        try {
+          const remote = await this.downloadRemote();
+          if (remote && Array.isArray(remote.tasks) && (remote.updatedAt || 0) > dataUpdatedAt) {
+            tasks = remote.tasks;
+            dataUpdatedAt = remote.updatedAt;
+            saveLocal();
+            renderAll();
+            this.lastSyncedAt = Date.now();
+            updateSyncUI();
+          }
+        } catch (e) {}
+      }, POLL_INTERVAL_MS);
+    },
+    stopPolling() { if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; } },
+  };
+  function startPolling() { DriveDB.startPolling(); }
+
+  function relTime(ms) {
+    const diff = Date.now() - ms;
+    if (diff < 45000) return "just now";
+    if (diff < 3600000) return Math.floor(diff / 60000) + "m ago";
+    if (diff < 86400000) return Math.floor(diff / 3600000) + "h ago";
+    return Math.floor(diff / 86400000) + "d ago";
+  }
+
+  function updateSyncUI(overrideStatus) {
+    if (overrideStatus) { syncStatusEl.textContent = overrideStatus; }
+    else if (DriveDB.needsReauth) { syncStatusEl.textContent = "Google session expired"; }
+    else if (DriveDB.signedIn) { syncStatusEl.textContent = DriveDB.lastSyncedAt ? "Synced " + relTime(DriveDB.lastSyncedAt) : "Synced to Google Drive"; }
+    else { syncStatusEl.textContent = ""; }
+    signinBtn.textContent = DriveDB.needsReauth ? "Reconnect Google" : (DriveDB.signedIn ? "Sign out" : "Sign in with Google");
+    signinBtn.classList.toggle("signed-in", DriveDB.signedIn && !DriveDB.needsReauth);
+    signedOutNoteEl.classList.toggle("hidden", DriveDB.signedIn);
+  }
+
+  signinBtn.addEventListener("click", () => {
+    if (DriveDB.signedIn || DriveDB.needsReauth) DriveDB.signOut();
+    else DriveDB.signIn(false);
+  });
+
+  // Keeps the sync status text ("Synced 2m ago") fresh without needing
+  // an actual sync to re-render it.
+  setInterval(() => { if (DriveDB.signedIn) updateSyncUI(); }, 30000);
+
+  /* ================= Init ================= */
+  loadLocal();
+  renderAll();
+  updateSyncUI();
+  // Try a silent (no-popup) sign-in on load if we still have a cached
+  // token or the browser remembers this Google account from before.
+  if (loadCachedDriveToken()) DriveDB.signIn(true);
+})();

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Tasks</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<!-- BUMP_VERSION: bump this number every time you re-upload app.js or
+     style.css to GitHub. Browsers (and GitHub's CDN) cache .css/.js files
+     by their exact URL, so "app.js" and "app.js?v=2" count as completely
+     different files to them — bumping this forces everyone's browser to
+     fetch your new version instead of reusing an old cached one. -->
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+
+<div id="app">
+  <header id="top-bar">
+    <div id="top-bar-title">
+      <span id="title-icon">✓</span>
+      <h1>Tasks</h1>
+    </div>
+    <div id="top-bar-right">
+      <span id="sync-status" class="sync-status" title=""></span>
+      <button id="signin-btn" type="button" class="signin-btn">Sign in with Google</button>
+    </div>
+  </header>
+
+  <div id="signed-out-note" class="signed-out-note hidden">
+    Working locally in this browser only. Sign in with Google to sync your
+    tasks across devices.
+  </div>
+
+  <div id="progress-wrap">
+    <div id="progress-bar"><div id="progress-fill"></div></div>
+    <span id="progress-label">0 / 0</span>
+  </div>
+
+  <div id="focus-timer-widget" class="focus-timer-widget"></div>
+
+  <div id="add-task-row">
+    <textarea id="new-task-input" rows="1" class="autosize-input" placeholder="Add a task and press Enter…" spellcheck="false"></textarea>
+    <button id="sort-stars-btn" type="button" title="Sort by priority (highest first)">★ Sort</button>
+  </div>
+
+  <ul id="task-list"></ul>
+
+  <div id="empty-state" class="empty-state hidden">No tasks yet — add one above.</div>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="app.js?v=1"></script>
+</body>
+</html>
