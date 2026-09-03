@@ -170,7 +170,8 @@
     tasks.forEach((t) => taskListEl.appendChild(buildTaskRow(t)));
   }
 
-  function buildTaskRow(t) {
+  function buildTaskRow(t, opts) {
+    const hideDue = !!(opts && opts.hideDue);
     const li = document.createElement("li");
     const subProg = taskSubtaskProgress(t);
     const subExpanded = (subProg.total > 0 || subtaskAddOpenFor.has(t.id)) && !collapsedSubtaskIds.has(t.id);
@@ -340,7 +341,7 @@
     top.appendChild(cb);
     top.appendChild(text);
     top.appendChild(stars);
-    top.appendChild(dueWrap);
+    if (!hideDue) top.appendChild(dueWrap);
     top.appendChild(actions);
     main.appendChild(top);
 
@@ -833,7 +834,7 @@
 
     const dayTasks = tasks.filter((t) => t.due === dayModalDate);
     dayModalTaskListEl.innerHTML = "";
-    dayTasks.forEach((t) => dayModalTaskListEl.appendChild(buildTaskRow(t)));
+    dayTasks.forEach((t) => dayModalTaskListEl.appendChild(buildTaskRow(t, { hideDue: true })));
     dayModalEmptyStateEl.classList.toggle("hidden", dayTasks.length > 0);
   }
 
