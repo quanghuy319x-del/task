@@ -300,13 +300,6 @@
     const actions = document.createElement("div");
     actions.className = "task-actions";
 
-    const timerBtn = document.createElement("button");
-    timerBtn.type = "button";
-    timerBtn.className = "task-icon-btn task-timer-start";
-    timerBtn.title = "Start a focus timer for this task";
-    timerBtn.textContent = "⏱";
-    timerBtn.addEventListener("click", (e) => { e.stopPropagation(); startFocusTimer(t.id, t.text); });
-
     const addSubBtn = document.createElement("button");
     addSubBtn.type = "button";
     addSubBtn.className = "task-icon-btn";
@@ -331,7 +324,6 @@
       persist();
     });
 
-    actions.appendChild(timerBtn);
     actions.appendChild(addSubBtn);
     actions.appendChild(delBtn);
 
@@ -818,7 +810,7 @@
   /* ---- Day detail modal — clicking a day (outside the "+" quick-add
      button) opens a blurred-backdrop overlay showing that day's full
      task list, same rich rows as List/Today (checkbox, stars,
-     subtasks, timer, delete), plus its own add-a-task box. ---- */
+     subtasks, delete), plus its own add-a-task box. ---- */
   function openDayModal(iso) {
     dayModalDate = iso;
     renderDayModal();
@@ -876,7 +868,7 @@
   /* ================= Today view =================
      A short worklist: whatever's overdue (past-due, unfinished) up
      top, then whatever's due today — same task rows as the list view
-     (checkbox, stars, due date, subtasks, timer, delete all still
+     (checkbox, stars, due date, subtasks, delete all still
      work here), just pre-filtered instead of showing everything. */
   function renderTodayView() {
     const today = new Date();
@@ -892,187 +884,6 @@
     todayListEl.innerHTML = "";
     dueToday.forEach((t) => todayListEl.appendChild(buildTaskRow(t)));
     todayEmptyStateEl.classList.toggle("hidden", dueToday.length > 0);
-  }
-
-  /* ================= Focus timer =================
-     One global timer, scoped to whichever task's ⏱ was clicked last —
-     keeps running (via setInterval) even while you're editing other
-     tasks. Starts short (1 min); "+1m" stacks on more time instead of
-     committing to a long duration up front. Same as Branchline. */
-  const FOCUS_DURATION = 60;
-  const FOCUS_EXTEND = 60;
-  let focusTimer = null; // { taskId, taskText, remaining, duration, paused, intervalId }
-  let focusJustCompleted = null;
-  let lastFocusTaskText = "";
-  let focusChimeIntervalId = null, focusChimeCapTimeoutId = null, focusChimeDismissHandler = null;
-  const FOCUS_CHIME_INTERVAL = 2500;
-  const FOCUS_CHIME_MAX_MS = 15000;
-
-  const BASE_TITLE = document.title;
-  const TITLE_TASK_MAX = 40;
-  const focusTimerWidgetEl = $("#focus-timer-widget");
-
-  function titleTaskLabel(text) {
-    const t = (text || "").trim() || "Focus";
-    return t.length > TITLE_TASK_MAX ? t.slice(0, TITLE_TASK_MAX - 1) + "…" : t;
-  }
-  function formatFocusTime(totalSeconds) {
-    const m = Math.floor(totalSeconds / 60);
-    const s = totalSeconds % 60;
-    return `${m}:${String(s).padStart(2, "0")}`;
-  }
-  function updateFocusTitle() {
-    if (focusTimer) {
-      document.title = `${focusTimer.paused ? "⏸" : "⏱"} ${formatFocusTime(focusTimer.remaining)} · ${titleTaskLabel(focusTimer.taskText)}`;
-    } else if (focusChimeIntervalId) {
-      document.title = `⏰ Time's up! · ${titleTaskLabel(lastFocusTaskText)}`;
-    } else {
-      document.title = BASE_TITLE;
-    }
-  }
-
-  function renderFocusTimerWidget() {
-    focusTimerWidgetEl.innerHTML = "";
-    if (focusTimer) {
-      const timeLabel = document.createElement("span");
-      timeLabel.className = "task-timer-time" + (focusTimer.paused ? " paused" : "");
-      timeLabel.textContent = formatFocusTime(focusTimer.remaining);
-
-      const label = document.createElement("span");
-      label.className = "task-timer-label";
-      label.textContent = titleTaskLabel(focusTimer.taskText);
-
-      const pauseBtn = document.createElement("button");
-      pauseBtn.type = "button";
-      pauseBtn.className = "task-timer-btn";
-      pauseBtn.title = focusTimer.paused ? "Resume" : "Pause";
-      pauseBtn.textContent = focusTimer.paused ? "▶" : "⏸";
-      pauseBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleFocusPause(); });
-
-      const extendBtn = document.createElement("button");
-      extendBtn.type = "button";
-      extendBtn.className = "task-timer-btn";
-      extendBtn.title = "Add 1 more minute";
-      extendBtn.textContent = "+1m";
-      extendBtn.addEventListener("click", (e) => { e.stopPropagation(); extendFocusTimer(FOCUS_EXTEND); });
-
-      const stopBtn = document.createElement("button");
-      stopBtn.type = "button";
-      stopBtn.className = "task-timer-btn task-timer-stop";
-      stopBtn.title = "Stop focus timer";
-      stopBtn.textContent = "■";
-      stopBtn.addEventListener("click", (e) => { e.stopPropagation(); stopFocusTimer(); });
-
-      focusTimerWidgetEl.appendChild(timeLabel);
-      focusTimerWidgetEl.appendChild(label);
-      focusTimerWidgetEl.appendChild(pauseBtn);
-      focusTimerWidgetEl.appendChild(extendBtn);
-      focusTimerWidgetEl.appendChild(stopBtn);
-    } else if (focusJustCompleted) {
-      const doneLabel = document.createElement("span");
-      doneLabel.className = "task-timer-done-label";
-      doneLabel.textContent = "✓ Focus done — tap anywhere to stop the chime";
-      focusTimerWidgetEl.appendChild(doneLabel);
-    }
-  }
-
-  function startFocusTimer(taskId, taskText) {
-    stopFocusTimer();
-    stopFocusChime();
-    focusJustCompleted = null;
-    focusTimer = {
-      taskId, taskText,
-      remaining: FOCUS_DURATION,
-      duration: FOCUS_DURATION,
-      paused: false,
-      intervalId: setInterval(focusTimerTick, 1000),
-    };
-    updateFocusTitle();
-    renderFocusTimerWidget();
-  }
-  function focusTimerTick() {
-    if (!focusTimer || focusTimer.paused) return;
-    focusTimer.remaining--;
-    if (focusTimer.remaining <= 0) { focusTimerComplete(); return; }
-    updateFocusTitle();
-    renderFocusTimerWidget();
-  }
-  function toggleFocusPause() {
-    if (!focusTimer) return;
-    focusTimer.paused = !focusTimer.paused;
-    updateFocusTitle();
-    renderFocusTimerWidget();
-  }
-  function extendFocusTimer(seconds) {
-    if (!focusTimer) return;
-    focusTimer.remaining += seconds;
-    focusTimer.duration += seconds;
-    updateFocusTitle();
-    renderFocusTimerWidget();
-  }
-  function stopFocusTimer() {
-    if (focusTimer && focusTimer.intervalId) clearInterval(focusTimer.intervalId);
-    focusTimer = null;
-    updateFocusTitle();
-    renderFocusTimerWidget();
-  }
-  function focusTimerComplete() {
-    const finished = focusTimer;
-    if (finished && finished.intervalId) clearInterval(finished.intervalId);
-    focusTimer = null;
-    if (finished) lastFocusTaskText = finished.taskText;
-    startFocusChime();
-    updateFocusTitle();
-    if (finished) {
-      focusJustCompleted = { taskId: finished.taskId };
-      renderFocusTimerWidget();
-      setTimeout(() => {
-        if (focusJustCompleted && focusJustCompleted.taskId === finished.taskId) {
-          focusJustCompleted = null;
-          renderFocusTimerWidget();
-        }
-      }, 4000);
-    }
-  }
-  function startFocusChime() {
-    stopFocusChime();
-    playFocusChime();
-    focusChimeIntervalId = setInterval(playFocusChime, FOCUS_CHIME_INTERVAL);
-    focusChimeCapTimeoutId = setTimeout(stopFocusChime, FOCUS_CHIME_MAX_MS);
-    focusChimeDismissHandler = () => stopFocusChime();
-    document.addEventListener("pointerdown", focusChimeDismissHandler, { capture: true, once: true });
-    document.addEventListener("keydown", focusChimeDismissHandler, { capture: true, once: true });
-    updateFocusTitle();
-  }
-  function stopFocusChime() {
-    if (focusChimeIntervalId) { clearInterval(focusChimeIntervalId); focusChimeIntervalId = null; }
-    if (focusChimeCapTimeoutId) { clearTimeout(focusChimeCapTimeoutId); focusChimeCapTimeoutId = null; }
-    if (focusChimeDismissHandler) {
-      document.removeEventListener("pointerdown", focusChimeDismissHandler, { capture: true });
-      document.removeEventListener("keydown", focusChimeDismissHandler, { capture: true });
-      focusChimeDismissHandler = null;
-    }
-    updateFocusTitle();
-  }
-  // A short two-tone chime via the Web Audio API — no audio file needed.
-  function playFocusChime() {
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      const ctx = new Ctx();
-      [880, 1174.66].forEach((freq, i) => {
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.type = "sine";
-        o.frequency.value = freq;
-        g.gain.value = 0.0001;
-        o.connect(g); g.connect(ctx.destination);
-        const start = ctx.currentTime + i * 0.16;
-        g.gain.exponentialRampToValueAtTime(0.16, start + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001, start + 0.5);
-        o.start(start); o.stop(start + 0.55);
-      });
-      setTimeout(() => ctx.close(), 1000);
-    } catch (e) { /* chime is a nice-to-have, not essential */ }
   }
 
   /* ================= Google Sign-In + Drive sync =================

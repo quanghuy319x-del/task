@@ -1,7 +1,7 @@
 # Tasks — a standalone to-do app
 
-The exact task feature from Branchline (subtasks, priority stars, focus
-timer, progress bar), promoted out of the mind map into its own
+The exact task feature from Branchline (subtasks, priority stars,
+progress bar), promoted out of the mind map into its own
 page — plus Google Sign-In to sync your list to your own Google Drive.
 No server, no account system of its own — Google Drive is the only
 place your data ever gets sent, and it's the only place it's stored.
@@ -79,18 +79,12 @@ your other Drive files.
 - **Drag to reorder tasks** — drag the ⠿ handle on the left of any task.
 - **Overall progress bar** — at the top; every task and subtask counts
   equally toward it, regardless of priority stars.
-- **Focus timer** — click the ⏱ on any task to start a 1-minute timer
-  for it, shown in a small widget under the progress bar. "+1m" stacks
-  on more time, ⏸ pauses, ■ stops. It keeps running in the background
-  even while you edit other tasks, chimes when time's up, and counts
-  down right in the browser tab's title (e.g. "⏱ 0:42 · Water the
-  plants") so you can see it without switching back to the tab.
 - **Autosave** — every edit syncs to your Google Drive `tasks.json`
   file automatically, a moment after you make it.
 - **Due dates + Calendar & Today views** — click the 📅 on any task to
   give it a due date. "📅 Calendar" (the default tab) shows a simple
   month grid like Google Calendar: each day shows a "✓done" counter
-  (green when everything's checked off — a quick read on how
+  (yellow when everything's checked off — a quick read on how
   productive that day was) plus a row of small checkbox icons — one
   per task due that day, except a task with 2+ subtasks gets broken
   into one box per subtask instead. These icons are display-only —
@@ -103,7 +97,7 @@ your other Drive files.
   there in the grid (no popup) for jotting a task down without leaving
   the calendar. "☀ Today" shows a short worklist — anything overdue up
   top, then whatever's due today, with full task rows (checkbox,
-  stars, subtasks, timer, delete all still work there). Past-due,
+  stars, subtasks, delete all still work there). Past-due,
   unfinished tasks show in red in the list view too. Navigate months
   in Calendar with ‹ ›, or jump back with "Today".
 
