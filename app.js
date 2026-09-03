@@ -812,7 +812,10 @@
     dayModalDate = iso;
     renderDayModal();
     dayModalBackdropEl.classList.remove("hidden");
-    requestAnimationFrame(() => dayModalNewTaskInput.focus());
+    // Deliberately not auto-focusing the add-task input here — doing so
+    // pops the virtual keyboard open immediately on touch devices, which
+    // isn't wanted just from tapping a day. The person can tap the box
+    // themselves when they're ready to add a task.
   }
   function closeDayModal() {
     dayModalDate = null;
