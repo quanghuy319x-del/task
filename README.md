@@ -64,12 +64,11 @@ your other Drive files.
 
 - **Add / check off / delete tasks** — type into the box at the top and
   press `Enter` to add. Double-click a task's text to rename it.
-- **Priority stars (0–3)** — click a star to set a task's priority;
-  click the same star again to clear it. Stars don't reorder the list
-  on their own, but weight how much a task's completion moves the
-  overall progress bar (0 stars = 1×, 1 star = 2×, 2 stars = 3×, 3
-  stars = 4×). "★ Sort" reorders the whole list by star count, highest
-  first.
+- **Priority star** — click the star to mark a task as priority; click
+  it again to clear it. It doesn't reorder the list on its own and
+  doesn't affect the progress bar — every task/subtask always counts
+  as one unit. "★ Sort" (available in List, Today, and the day detail
+  popup) moves starred tasks to the top of the list.
 - **Subtasks** — click "▸+" on a task to add a small checklist under it.
   Checking every subtask marks the parent task done automatically, and
   checking/unchecking the parent cascades to all its subtasks. A small
@@ -78,8 +77,8 @@ your other Drive files.
   one entirely. Double-click a subtask's text to rename it, ⧉ to copy
   its text, × to delete it.
 - **Drag to reorder tasks** — drag the ⠿ handle on the left of any task.
-- **Overall progress bar** — at the top, weighted the same way as the
-  star priorities above.
+- **Overall progress bar** — at the top; every task and subtask counts
+  equally toward it, regardless of priority stars.
 - **Focus timer** — click the ⏱ on any task to start a 1-minute timer
   for it, shown in a small widget under the progress bar. "+1m" stacks
   on more time, ⏸ pauses, ■ stops. It keeps running in the background

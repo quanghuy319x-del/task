@@ -101,12 +101,12 @@ body{ min-height:100vh; }
   color: var(--text); outline:none; box-shadow: var(--shadow);
 }
 .autosize-input:focus{ border-color: var(--accent); }
-#sort-stars-btn{
+.sort-stars-btn{
   border:1px solid var(--card-border); background: var(--card); color: var(--text-dim);
   border-radius: var(--radius); padding: 10px 12px; font-size:12.5px; font-weight:600;
   cursor:pointer; box-shadow: var(--shadow); white-space:nowrap;
 }
-#sort-stars-btn:hover{ border-color: var(--star); color: var(--star); }
+.sort-stars-btn:hover{ border-color: var(--star); color: var(--star); }
 
 #task-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
 
@@ -259,11 +259,10 @@ body{ min-height:100vh; }
 .calendar-cell.today .calendar-day-head .calendar-add-btn{ opacity:1; }
 .calendar-day-tasks{ display:flex; flex-wrap:wrap; gap:2px 3px; min-width:0; }
 .calendar-task-box{
-  font-size:13px; line-height:1; color: var(--accent); flex:none;
+  font-size: inherit; line-height:1; color: var(--accent); flex:none;
 }
-.calendar-task-box.calendar-subtask-box{ font-size:11px; opacity:0.85; }
+.calendar-task-box.calendar-subtask-box{ font-size:0.85em; opacity:0.85; }
 .calendar-task-box.done{ color: var(--danger); font-weight:700; }
-.calendar-more-label{ font-size:10px; color: var(--text-faint); align-self:center; }
 .calendar-quick-add{
   min-height:24px; font-size:11.5px; padding:3px 6px; margin-top:2px;
   border:1px dashed var(--accent); border-radius:5px; background: var(--accent-dim);

@@ -37,7 +37,7 @@
      out of Branchline's per-node "Tasks…" modal into the whole page.
      Same shape, same rules, plus an optional due date for the calendar
      view:
-       task = { id, text, done, stars (0-3), due: "YYYY-MM-DD"|null,
+       task = { id, text, done, stars (0-1, single priority flag), due: "YYYY-MM-DD"|null,
                  subtasks: [{id, text, done}] }
      Stored as one JSON blob { tasks, updatedAt }, in a single
      "tasks.json" file in the person's own Google Drive — the same way
@@ -60,14 +60,12 @@
   /* ================= Task/subtask helpers =================
      Identical rules to Branchline's node-level task feature. */
   function getTaskStars(t) {
-    return clamp(Math.round(t.stars) || 0, 0, 3);
+    return clamp(Math.round(t.stars) || 0, 0, 1);
   }
-  // 0 stars = 1x weight, 1 star = 2x, 2 stars = 3x, 3 stars = 4x — each
-  // star of priority makes that task's completion move the overall
-  // progress bar further.
+  // Priority stars no longer weight progress — every task/subtask
+  // always counts as a single unit (1x), regardless of star count.
   function taskWeight(t) {
-    const stars = getTaskStars(t);
-    return stars > 0 ? stars + 1 : 1;
+    return 1;
   }
   function getTaskSubtasks(t) {
     return (t && Array.isArray(t.subtasks)) ? t.subtasks : [];
@@ -110,6 +108,8 @@
   const progressLabelEl = $("#progress-label");
   const newTaskInput = $("#new-task-input");
   const sortStarsBtn = $("#sort-stars-btn");
+  const todaySortStarsBtn = $("#today-sort-stars-btn");
+  const dayModalSortStarsBtn = $("#day-modal-sort-stars-btn");
 
   /* ---- View toggle (List / Calendar / Today) ---- */
   const viewListBtn = $("#view-list-btn");
@@ -267,20 +267,17 @@
 
     const stars = document.createElement("div");
     stars.className = "task-stars";
-    for (let i = 1; i <= 3; i++) {
-      const s = document.createElement("button");
-      s.type = "button";
-      s.className = "task-star" + (getTaskStars(t) >= i ? " filled" : "");
-      s.textContent = "★";
-      s.title = i + " star priority";
-      s.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const cur = getTaskStars(t);
-        t.stars = cur === i ? 0 : i; // clicking the current level clears it
-        persist();
-      });
-      stars.appendChild(s);
-    }
+    const s = document.createElement("button");
+    s.type = "button";
+    s.className = "task-star" + (getTaskStars(t) >= 1 ? " filled" : "");
+    s.textContent = "★";
+    s.title = "Priority";
+    s.addEventListener("click", (e) => {
+      e.stopPropagation();
+      t.stars = getTaskStars(t) >= 1 ? 0 : 1; // toggle priority on/off
+      persist();
+    });
+    stars.appendChild(s);
 
     const dueWrap = document.createElement("label");
     dueWrap.className = "task-due-wrap" + (t.due ? " has-due" : "") + (isOverdue ? " overdue" : "");
@@ -635,11 +632,18 @@
     }
   });
 
-  sortStarsBtn.addEventListener("click", () => {
+  // Sorts the whole task list by priority (highest star count first).
+  // Available from every list — List view, Today view, and the day
+  // detail modal — since they're all just different lenses on the
+  // same underlying `tasks` array.
+  function sortTasksByStars() {
     if (tasks.length < 2) return;
     tasks = tasks.slice().sort((a, b) => getTaskStars(b) - getTaskStars(a));
     persist();
-  });
+  }
+  sortStarsBtn.addEventListener("click", sortTasksByStars);
+  todaySortStarsBtn.addEventListener("click", sortTasksByStars);
+  dayModalSortStarsBtn.addEventListener("click", sortTasksByStars);
 
   /* ================= Calendar view =================
      A simple, single month grid (like a stripped-down Google Calendar
@@ -650,7 +654,16 @@
      input pre-set to that day. */
   const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MONTH_LABELS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  const CAL_MAX_BOXES = 12;
+  // Every due-item box for a day is always shown (no "+N more"
+  // truncation) — instead the boxes shrink as the day gets busier.
+  // Up to 8 items they stay full-size; beyond that each additional
+  // item nudges the font-size down, clamped so boxes never get too
+  // small to tap/read.
+  function calendarBoxFontSize(count) {
+    const base = 13, min = 6.5, step = 0.35, freeSlots = 8;
+    const size = base - Math.max(0, count - freeSlots) * step;
+    return Math.max(min, size).toFixed(2) + "px";
+  }
 
   function switchView(view) {
     currentView = view;
@@ -736,7 +749,11 @@
 
       const tasksWrap = document.createElement("div");
       tasksWrap.className = "calendar-day-tasks";
-      dayItems.slice(0, CAL_MAX_BOXES).forEach((it) => {
+      // Always render every box for the day — never truncate with a
+      // "+N more" label. Instead, shrink the boxes as the count grows
+      // so a busy day still fits in the cell.
+      tasksWrap.style.fontSize = calendarBoxFontSize(dayItems.length);
+      dayItems.forEach((it) => {
         const box = document.createElement("span");
         box.className = "calendar-task-box" + (it.done ? " done" : "") + (it.kind === "subtask" ? " calendar-subtask-box" : "");
         box.textContent = it.done ? "☑" : "☐";
@@ -746,13 +763,6 @@
         // full task list, where checking/editing happens instead.
         tasksWrap.appendChild(box);
       });
-      if (dayItems.length > CAL_MAX_BOXES) {
-        const more = document.createElement("span");
-        more.className = "calendar-more-label";
-        more.textContent = `+${dayItems.length - CAL_MAX_BOXES}`;
-        more.title = `${dayItems.length - CAL_MAX_BOXES} more — open List or Today view to see them all`;
-        tasksWrap.appendChild(more);
-      }
       cell.appendChild(tasksWrap);
 
       cell.addEventListener("click", () => openDayModal(iso));
