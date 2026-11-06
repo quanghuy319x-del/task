@@ -1,0 +1,571 @@
+/* Branchline — js/01-edit-log.js
+   v612: operation log used by cross-device conflict resolution.
+   Loaded after core storage and before Google Drive sync. */
+"use strict";
+
+  const EDIT_LOG_LIMIT = 2000;
+  const EDIT_DEVICE_KEY = "branchline_edit_device_v1";
+  // Per-tab writer identity makes concurrent PC tabs independently
+  // addressable even if they share the same stable deviceId. A reload
+  // starts another writer, with its own sequence; all IDs remain unique.
+  const EDIT_TAB_ID = (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : ("tab-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2));
+  const editLogPendingBefore = new Map();
+  const editLogShadow = new Map();
+
+  function editClone(v) {
+    try { return structuredClone(v); } catch (e) {
+      try { return JSON.parse(JSON.stringify(v)); } catch (e2) { return v; }
+    }
+  }
+
+  function editDeviceId() {
+    try {
+      let id = localStorage.getItem(EDIT_DEVICE_KEY);
+      if (id) return id;
+      id = (crypto && crypto.randomUUID) ? crypto.randomUUID() :
+        ("dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10));
+      localStorage.setItem(EDIT_DEVICE_KEY, id);
+      return id;
+    } catch (e) {
+      return "device";
+    }
+  }
+
+  function editDeviceLabel() {
+    const sw = Number(window.screen && window.screen.width) || window.innerWidth || 1024;
+    const sh = Number(window.screen && window.screen.height) || window.innerHeight || 768;
+    return Math.min(sw, sh) <= 640 ? "phone" : "pc";
+  }
+
+  function mapLastEditAt(map) {
+    return Math.max(0, Number(map && map._lastEditAt) || 0);
+  }
+
+  function nextEditAt(map) {
+    let remote = 0;
+    try {
+      const known = DriveDB && DriveDB.fileIndex && map && DriveDB.fileIndex[map.id];
+      remote = Number(known && known.lastEditAt) || 0;
+    } catch (e) {}
+    return Math.max(Date.now(), mapLastEditAt(map) + 1, remote + 1);
+  }
+
+  function formatEditDate(iso) {
+    if (!iso) return "";
+    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? (m[3] + "/" + m[2] + "/" + m[1]) : String(iso);
+  }
+
+  function formatEditClock(ts) {
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, "0");
+    return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+  }
+
+  function editSnapshotMeta(map) {
+    return {
+      title: map && map.title || "",
+      editorPrefs: editClone(map && map.editorPrefs || {}),
+      layout: map && map.layout || "",
+      theme: editClone(map && map.theme || {}),
+      clockHidden: !!(map && map.clockHidden),
+      calendarSummaryStyle: map && map.calendarSummaryStyle || "",
+      calendarViewMode: map && map.calendarViewMode || "",
+      taskBadgeStyle: map && map.taskBadgeStyle || "",
+      iconStyle: map && map.iconStyle || ""
+    };
+  }
+
+  function editSnapshotString(map) {
+    if (!map) return "";
+    return JSON.stringify({
+      root: map.root || null,
+      links: map.links || [],
+      title: map.title || "",
+      editorPrefs: map.editorPrefs || {},
+      layout: map.layout || "",
+      theme: map.theme || {},
+      clockHidden: !!map.clockHidden,
+      calendarSummaryStyle: map.calendarSummaryStyle || "",
+      calendarViewMode: map.calendarViewMode || "",
+      taskBadgeStyle: map.taskBadgeStyle || "",
+      iconStyle: map.iconStyle || ""
+    });
+  }
+
+  function primeEditLogShadow(map) {
+    if (!map || !map.id) return;
+    try { editLogShadow.set(map.id, editSnapshotString(map)); } catch (e) {}
+  }
+
+  function captureEditLogBefore(undoJson, map) {
+    if (!map || !map.id || editLogPendingBefore.has(map.id)) return;
+    editLogPendingBefore.set(map.id, {
+      undoJson: undoJson || null,
+      meta: editSnapshotMeta(map)
+    });
+  }
+
+  function pendingBeforeSnapshot(map) {
+    const pending = map && editLogPendingBefore.get(map.id);
+    if (pending) {
+      try {
+        const core = pending.undoJson ? JSON.parse(pending.undoJson) : {};
+        return {
+          root: core.root || null,
+          links: core.links || [],
+          title: pending.meta.title || "",
+          editorPrefs: pending.meta.editorPrefs || {},
+          layout: pending.meta.layout || "",
+          theme: pending.meta.theme || {},
+          clockHidden: !!pending.meta.clockHidden,
+          calendarSummaryStyle: pending.meta.calendarSummaryStyle || "",
+          calendarViewMode: pending.meta.calendarViewMode || "",
+          taskBadgeStyle: pending.meta.taskBadgeStyle || "",
+          iconStyle: pending.meta.iconStyle || ""
+        };
+      } catch (e) {}
+    }
+    const shadow = map && editLogShadow.get(map.id);
+    if (shadow) {
+      try { return JSON.parse(shadow); } catch (e) {}
+    }
+    return null;
+  }
+
+  function editValueEqual(a, b) {
+    if (a === b) return true;
+    try { return JSON.stringify(a) === JSON.stringify(b); } catch (e) { return false; }
+  }
+
+  function editTouch(base, key) {
+    return base ? (base + ":" + key) : ("map:" + key);
+  }
+
+  function editObjectId(v) {
+    return v && typeof v === "object" && !Array.isArray(v) && v.id != null ? String(v.id) : null;
+  }
+
+  function editArrayHasIds(arr) {
+    return Array.isArray(arr) && arr.filter(v => v != null).every(v => editObjectId(v));
+  }
+
+  function collectEditChanges(before, after, touch, field, out) {
+    if (editValueEqual(before, after)) return;
+    const skip = field === "updatedAt" || field === "createdAt" || field === "view" ||
+      field === "calendarRetained" || (field && field[0] === "_");
+    if (skip) return;
+
+    if (Array.isArray(before) || Array.isArray(after)) {
+      const b = Array.isArray(before) ? before : [];
+      const a = Array.isArray(after) ? after : [];
+      if (editArrayHasIds(b) && editArrayHasIds(a)) {
+        const bm = new Map(b.map(v => [String(v.id), v]));
+        const am = new Map(a.map(v => [String(v.id), v]));
+        const ids = [];
+        const seen = new Set();
+        b.concat(a).forEach(v => {
+          const id = v && v.id != null ? String(v.id) : "";
+          if (id && !seen.has(id)) { seen.add(id); ids.push(id); }
+        });
+        ids.forEach(id => {
+          const bv = bm.get(id), av = am.get(id);
+          const base = "id:" + id;
+          if (!bv || !av) {
+            out.push({ touch: base + ":*", field: "*", before: bv, after: av, entityId: id });
+          } else {
+            collectEditChanges(bv, av, base, "", out);
+          }
+        });
+        const bOrder = b.map(v => String(v.id)).join("|");
+        const aOrder = a.map(v => String(v.id)).join("|");
+        if (bOrder !== aOrder && b.length === a.length) {
+          out.push({ touch: editTouch(touch, (field || "items") + ".order"), field: (field || "items") + ".order", before: bOrder, after: aOrder });
+        }
+        return;
+      }
+      out.push({ touch: editTouch(touch, field || "items"), field: field || "items", before: editClone(before), after: editClone(after) });
+      return;
+    }
+
+    const bObj = before && typeof before === "object";
+    const aObj = after && typeof after === "object";
+    if (bObj || aObj) {
+      if (!bObj || !aObj) {
+        out.push({ touch: editTouch(touch, field || "value"), field: field || "value", before: editClone(before), after: editClone(after) });
+        return;
+      }
+      const objectId = editObjectId(after) || editObjectId(before);
+      const baseTouch = objectId ? ("id:" + objectId) : touch;
+      const keys = new Set(Object.keys(before || {}).concat(Object.keys(after || {})));
+      keys.forEach(k => {
+        if (k === "id" || k === "children") return;
+        collectEditChanges(before ? before[k] : undefined, after ? after[k] : undefined, baseTouch, k, out);
+      });
+      if ((before && before.children) || (after && after.children)) {
+        collectEditChanges(before && before.children || [], after && after.children || [], baseTouch, "children", out);
+      }
+      return;
+    }
+
+    out.push({ touch: editTouch(touch, field || "value"), field: field || "value", before: before, after: after });
+  }
+
+  function buildEditEntityIndex(snapshot) {
+    const idx = new Map();
+    if (!snapshot || !snapshot.root) return idx;
+
+    function add(id, info) {
+      if (id != null) idx.set(String(id), info);
+    }
+    function walkNotes(notes, owner) {
+      (notes || []).forEach(n => add(n.id, {
+        type: "note",
+        label: (n.title || "Untitled note").trim(),
+        nodeLabel: owner.nodeLabel || "",
+        taskLabel: owner.taskLabel || "",
+        due: owner.due || "",
+        calendarDate: owner.calendarDate || ""
+      }));
+    }
+    function walkTasks(tasks, owner) {
+      (tasks || []).forEach(t => {
+        const info = {
+          type: "task",
+          label: (t.text || "Untitled task").trim(),
+          nodeLabel: owner.nodeLabel || "",
+          due: t.due || owner.calendarDate || "",
+          calendarDate: owner.calendarDate || ""
+        };
+        add(t.id, info);
+        walkNotes(t.notes, { ...owner, taskLabel: info.label, due: info.due });
+        (t.subtasks || []).forEach(s => {
+          const taskLabel = (s.text || "Untitled task").trim();
+          add(s.id, {
+            type: "subtask",
+            label: taskLabel,
+            nodeLabel: owner.nodeLabel || "",
+            taskLabel: info.label,
+            taskId: t.id,
+            due: info.due,
+            calendarDate: owner.calendarDate || ""
+          });
+          walkNotes(s.notes, { ...owner, taskLabel, due: info.due });
+          (s.subsubtasks || []).forEach(child => add(child.id, {
+            type: "subsubtask",
+            label: (child.text || "Untitled subtask").trim(),
+            nodeLabel: owner.nodeLabel || "",
+            taskLabel: taskLabel,
+            categoryLabel: info.label,
+            parentId: s.id,
+            due: info.due,
+            calendarDate: owner.calendarDate || ""
+          }));
+        });
+      });
+    }
+    function calendarDateForCell(node, r, c) {
+      const t = node && node.table;
+      if (!t || !t.calendar || r < 2) return "";
+      const year = Number(t.calendarYear), month = Number(t.calendarMonth);
+      const start = Number.isFinite(Number(t.calendarStart))
+        ? Number(t.calendarStart)
+        : (new Date(year, month - 1, 1).getDay() + 6) % 7;
+      const offset = (r - 2) * 7 + c - start;
+      const d = new Date(year, month - 1, 1 + offset);
+      if (d.getFullYear() !== year || d.getMonth() + 1 !== month) return "";
+      const p = n => String(n).padStart(2, "0");
+      return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+    }
+    function walkNode(node) {
+      if (!node) return;
+      const nodeLabel = (node.text || "Untitled node").trim();
+      add(node.id, { type: "node", label: nodeLabel, nodeLabel: nodeLabel });
+      walkNotes(node.notes, { nodeLabel });
+      walkTasks(node.tasks, { nodeLabel });
+      const t = node.table;
+      if (t && Array.isArray(t.attach)) {
+        t.attach.forEach((row, r) => (row || []).forEach((host, c) => {
+          if (!host) return;
+          const calendarDate = calendarDateForCell(node, r, c);
+          walkNotes(host.notes, { nodeLabel, calendarDate });
+          walkTasks(host.tasks, { nodeLabel, calendarDate });
+        }));
+      }
+      (node.children || []).forEach(walkNode);
+    }
+    walkNode(snapshot.root);
+    return idx;
+  }
+
+  function describeEditChange(ch, beforeIdx, afterIdx) {
+    const m = String(ch.touch || "").match(/^id:([^:]+):(.+)$/);
+    const id = m ? m[1] : (ch.entityId || "");
+    const field = m ? m[2] : ch.field;
+    const info = afterIdx.get(String(id)) || beforeIdx.get(String(id)) || null;
+    const label = info && info.label ? info.label : "item";
+    const date = info && (info.due || info.calendarDate);
+    const whereDate = date ? (" on date " + formatEditDate(date)) : "";
+
+    if (info && field === "done") {
+      const action = ch.after ? "mark done " : "mark undone ";
+      if (info.type === "subsubtask") return action + 'subtask "' + label + '" in task "' + (info.taskLabel || "Untitled task") + '"' + whereDate;
+      if (info.type === "subtask") return action + 'task "' + label + '" in category "' + (info.taskLabel || "Untitled category") + '"' + whereDate;
+      if (info.type === "task") return action + 'category "' + label + '"' + whereDate;
+    }
+    if (info && field === "failed") {
+      const action = ch.after ? "mark failed " : "clear failed ";
+      if (info.type === "subsubtask") return action + 'subtask "' + label + '" in task "' + (info.taskLabel || "Untitled task") + '"' + whereDate;
+      if (info.type === "subtask") return action + 'task "' + label + '" in category "' + (info.taskLabel || "Untitled category") + '"' + whereDate;
+      if (info.type === "task") return action + 'category "' + label + '"' + whereDate;
+    }
+    if (info && field === "text") {
+      const oldText = String(ch.before || "").trim();
+      const newText = String(ch.after || "").trim();
+      if (info.type === "subsubtask") return 'rename subtask "' + oldText + '" to "' + newText + '" in task "' + (info.taskLabel || "Untitled task") + '"';
+      if (info.type === "subtask") return 'rename task "' + oldText + '" to "' + newText + '" in category "' + (info.taskLabel || "Untitled category") + '"';
+      if (info.type === "task") return 'rename category "' + oldText + '" to "' + newText + '"';
+      if (info.type === "node") return 'rename node "' + oldText + '" to "' + newText + '"';
+    }
+    if (info && field === "due") {
+      return 'set task "' + label + '" date to ' + (ch.after ? formatEditDate(ch.after) : "none");
+    }
+    if (info && field === "html") {
+      return 'edit note "' + label + '"' + (info.taskLabel ? (' in task "' + info.taskLabel + '"') : (info.nodeLabel ? (' in node "' + info.nodeLabel + '"') : ""));
+    }
+    if (info && field === "*") {
+      const verb = ch.after == null ? "delete " : (ch.before == null ? "add " : "edit ");
+      if (info.type === "subsubtask") return verb + 'subtask "' + label + '" in task "' + (info.taskLabel || "Untitled task") + '"' + whereDate;
+      if (info.type === "subtask") return verb + 'task "' + label + '" in category "' + (info.taskLabel || "Untitled category") + '"' + whereDate;
+      if (info.type === "task") return verb + 'category "' + label + '"' + whereDate;
+      return verb + info.type + ' "' + label + '"' + whereDate;
+    }
+    if (ch.touch === "map:title") return 'rename map "' + String(ch.before || "") + '" to "' + String(ch.after || "") + '"';
+    if (info && field === "description") {
+      const verb = String(ch.after || "").trim() ? (String(ch.before || "").trim() ? "edit" : "add") : "remove";
+      const type = info.type === "task" ? "category" : info.type === "subtask" ? "task" : info.type === "subsubtask" ? "subtask" : info.type;
+      return verb + ' description for ' + type + ' "' + label + '"' + whereDate;
+    }
+    if (info && field && field.includes(".order")) {
+      return 'reorder items in ' + (info.type === "task" ? "category" : "task") + ' "' + label + '"' + whereDate;
+    }
+    if (info) {
+      const type = info.type === "task" ? "category" : info.type === "subtask" ? "task" : info.type === "subsubtask" ? "subtask" : info.type;
+      return 'edit ' + String(field || "content") + ' on ' + type + ' "' + label + '"' + whereDate;
+    }
+    return "edit " + String(field || "map content");
+  }
+
+  function normalizeEditLog(map) {
+    if (!map) return [];
+    if (!Array.isArray(map._editLog)) map._editLog = [];
+    return map._editLog;
+  }
+
+  function appendEditLogEntry(map, ts, description, touches) {
+    const log = normalizeEditLog(map);
+    const deviceId = editDeviceId();
+    const writerId = deviceId + "/" + EDIT_TAB_ID;
+    if (!map._editSeq || typeof map._editSeq !== "object") map._editSeq = {};
+    // Read the log too: after a three-way merge the newest operations can
+    // be present in _editLog but missing from this device's old _editSeq.
+    // Never reuse a sequence number in a writer stream.
+    let maxSeq = Number(map._editSeq[writerId]) || 0;
+    log.forEach(e => {
+      if (e && e.writerId === writerId) maxSeq = Math.max(maxSeq, Number(e.seq) || 0);
+    });
+    const seq = maxSeq + 1;
+    map._editSeq[writerId] = seq;
+    const entry = {
+      id: writerId + ":" + seq + ":" + ts,
+      ts: ts,
+      deviceId: deviceId,
+      writerId: writerId,
+      device: editDeviceLabel(),
+      seq: seq,
+      description: description,
+      line: formatEditClock(ts) + " " + description,
+      touches: Array.from(new Set((touches || []).filter(Boolean)))
+    };
+    log.push(entry);
+    if (log.length > EDIT_LOG_LIMIT) {
+      const drop = log.length - EDIT_LOG_LIMIT;
+      const removed = log.splice(0, drop);
+      let maxDropped = Number(map._editLogDroppedBefore) || 0;
+      removed.forEach(e => { maxDropped = Math.max(maxDropped, Number(e && e.ts) || 0); });
+      map._editLogDroppedBefore = maxDropped;
+    }
+    map._lastEditAt = Math.max(mapLastEditAt(map), ts);
+    return entry;
+  }
+
+  function recordPendingEditLog(map) {
+    if (!map || !map.id) return false;
+    const before = pendingBeforeSnapshot(map);
+    const afterText = editSnapshotString(map);
+    if (!before) {
+      primeEditLogShadow(map);
+      editLogPendingBefore.delete(map.id);
+      return false;
+    }
+    let after;
+    try { after = JSON.parse(afterText); } catch (e) { return false; }
+
+    const changes = [];
+    collectEditChanges(before, after, "map", "", changes);
+
+    const parentMap = (snap) => {
+      const out = new Map();
+      (function walk(n, p) {
+        if (!n) return;
+        out.set(String(n.id), p == null ? null : String(p));
+        (n.children || []).forEach(c => walk(c, n.id));
+      })(snap && snap.root, null);
+      return out;
+    };
+    const bp = parentMap(before), ap = parentMap(after);
+    const ids = new Set([...bp.keys(), ...ap.keys()]);
+    ids.forEach(id => {
+      if (bp.has(id) && ap.has(id) && bp.get(id) !== ap.get(id)) {
+        changes.push({ touch: "id:" + id + ":parent", field: "parent", before: bp.get(id), after: ap.get(id), entityId: id });
+      }
+    });
+
+    editLogPendingBefore.delete(map.id);
+    editLogShadow.set(map.id, afterText);
+    if (!changes.length) return false;
+
+    const beforeIdx = buildEditEntityIndex(before);
+    const afterIdx = buildEditEntityIndex(after);
+    const changedSubtaskParents = new Set();
+    changes.forEach(ch => {
+      const m = String(ch.touch || "").match(/^id:([^:]+):(done|failed|\*)$/);
+      if (!m) return;
+      const info = afterIdx.get(m[1]) || beforeIdx.get(m[1]);
+      if (info && info.type === "subtask" && info.taskId) changedSubtaskParents.add(String(info.taskId));
+    });
+
+    const primary = [];
+    const allTouches = changes.map(ch => ch.touch);
+    changes.forEach(ch => {
+      const m = String(ch.touch || "").match(/^id:([^:]+):(done|failed)$/);
+      if (m && changedSubtaskParents.has(m[1])) return;
+      primary.push(ch);
+    });
+
+    const ts = nextEditAt(map);
+    if (!primary.length) {
+      appendEditLogEntry(map, ts, "edit map content", allTouches);
+      return true;
+    }
+    primary.slice(0, 20).forEach((ch, i) => {
+      const desc = describeEditChange(ch, beforeIdx, afterIdx);
+      appendEditLogEntry(map, ts + i, desc, [ch.touch].concat(i === 0 ? allTouches : []));
+    });
+    map._lastEditAt = Math.max(mapLastEditAt(map), ts + Math.max(0, primary.length - 1));
+    return true;
+  }
+
+  // v677: durable write-ahead recovery journal. Unlike descriptive _editLog
+  // entries, each record contains the resulting map state, so it can
+  // actually restore a lost note/subtask/node. The journal lives in a
+  // SEPARATE IndexedDB store and is never replaced by a Drive download.
+  // Limit: last 12 revisions / map, metadata only (photo blobs remain in
+  // PhotoDB). A crash during an IndexedDB transaction cannot partially
+  // commit the map without its companion recovery record.
+  const EDIT_JOURNAL_STORE = "editRecoveryJournal";
+  const EDIT_JOURNAL_MAX_PER_MAP = 12;
+  function journalRecoveryRecord(map) {
+    const copy = editClone(map);
+    return {
+      id: map.id + ":" + String(map.updatedAt || Date.now()) + ":" + uid(),
+      mapId: map.id,
+      ts: Date.now(),
+      lastEditAt: mapLastEditAt(map),
+      updatedAt: Number(map.updatedAt) || 0,
+      editIds: (map._editLog || []).slice(-25).map(e => e && e.id).filter(Boolean),
+      map: copy
+    };
+  }
+  async function journalRecoveryRevisions(mapId) {
+    const db = await DB.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(EDIT_JOURNAL_STORE, "readonly");
+      const idx = tx.objectStore(EDIT_JOURNAL_STORE).index("mapId");
+      const req = idx.getAll(IDBKeyRange.only(mapId));
+      req.onsuccess = () => resolve((req.result || []).sort((a,b) => b.ts-a.ts || b.updatedAt-a.updatedAt));
+      req.onerror = () => reject(req.error);
+    });
+  }
+  // Recovery is deliberately explicit; returning candidates cannot modify
+  // active maps or create sync conflicts without the user's instruction.
+  async function latestJournalRecovery(mapId) {
+    const rows = await journalRecoveryRevisions(mapId);
+    return rows.length ? editClone(rows[0].map) : null;
+  }
+
+  function ensureRecoveredEditLog(map) {
+    if (!map || !map.id) return;
+    const log = normalizeEditLog(map);
+    if (log.length || mapLastEditAt(map)) return;
+    const ts = Math.max(1, Number(map.updatedAt) || Date.now());
+    appendEditLogEntry(map, ts, "recover unsynced local edit from previous session", ["map:*"]);
+  }
+
+  function mergeMapEditLogs(localMap, remoteMap) {
+    const byId = new Map();
+    [localMap, remoteMap].forEach(map => {
+      (map && Array.isArray(map._editLog) ? map._editLog : []).forEach(e => {
+        if (!e || !e.id) return;
+        const prior = byId.get(e.id);
+        if (!prior || (Number(e.ts) || 0) >= (Number(prior.ts) || 0)) byId.set(e.id, editClone(e));
+      });
+    });
+    const merged = Array.from(byId.values()).sort((a, b) =>
+      (Number(a.ts) || 0) - (Number(b.ts) || 0) ||
+      String(a.writerId || a.deviceId || "").localeCompare(String(b.writerId || b.deviceId || "")) ||
+      (Number(a.seq) || 0) - (Number(b.seq) || 0) ||
+      String(a.id || "").localeCompare(String(b.id || ""))
+    );
+    if (merged.length > EDIT_LOG_LIMIT) merged.splice(0, merged.length - EDIT_LOG_LIMIT);
+    return merged;
+  }
+
+  function editTouchMatches(entryTouch, wanted) {
+    if (!entryTouch || !wanted) return false;
+    if (entryTouch === wanted || entryTouch === "map:*") return true;
+    const wm = wanted.match(/^(id:[^:]+):/);
+    if (wm && entryTouch === wm[1] + ":*") return true;
+    return false;
+  }
+
+  // v676: map:* is a recovery marker, NOT a per-field edit. It must not
+  // defeat a concrete edit on the other device merely because it was logged
+  // later. Prefer exact field/explicit entity-change timestamps.
+  function latestEditTouchAt(map, touch) {
+    const log = map && Array.isArray(map._editLog) ? map._editLog : [];
+    const wm = String(touch || "").match(/^(id:[^:]+):/);
+    let newest = 0;
+    for (const e of log) {
+      if (!e || !Array.isArray(e.touches)) continue;
+      if (e.touches.some(t => t === touch || (wm && t === wm[1] + ":*"))) {
+        newest = Math.max(newest, Number(e.ts) || 0);
+      }
+    }
+    return newest;
+  }
+
+  function chooseLaterEditValue(localMap, remoteMap, touch, localValue, remoteValue) {
+    const lt = latestEditTouchAt(localMap, touch);
+    const rt = latestEditTouchAt(remoteMap, touch);
+    // If two genuinely different values have competing specific operations,
+    // choose the newer operation, not the higher map.updatedAt/upload time.
+    if (lt && rt && lt > rt) return { chosen: true, value: editClone(localValue), side: "local", ts: lt };
+    if (lt && rt && rt > lt) return { chosen: true, value: editClone(remoteValue), side: "remote", ts: rt };
+    // Missing/tied operation evidence is ambiguous, even if one whole-map
+    // revision has a later timestamp. Let the caller preserve a conflict
+    // copy instead of silently discarding an unlogged specific change.
+    return { chosen: false, value: null, side: null, ts: Math.max(lt, rt) };
+  }
